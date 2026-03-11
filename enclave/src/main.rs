@@ -112,7 +112,7 @@ fn handle_client<S: Read + Write>(mut stream: S) -> Result<()> {
 }
 
 fn main() -> Result<()> {
-    println!("[enclave] init");
+    eprintln!("[enclave] init");
 
     let listener = match VsockListener::bind_with_cid_port(libc::VMADDR_CID_ANY, ENCLAVE_PORT) {
         Ok(l) => l,
@@ -125,8 +125,8 @@ fn main() -> Result<()> {
         }
     };
 
-    println!("[enclave] listening on port {ENCLAVE_PORT}");
-    println!(
+    eprintln!("[enclave] listening on port {ENCLAVE_PORT}");
+    eprintln!(
         "[enclave] max concurrent connections: {}",
         MAX_CONCURRENT_CONNECTIONS
     );
