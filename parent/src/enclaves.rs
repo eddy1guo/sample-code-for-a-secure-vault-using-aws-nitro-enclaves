@@ -148,6 +148,7 @@ impl Enclaves {
             .args(["--eif-path", RUN_ENCLAVE_EIF_PATH])
             .args(["--cpu-count", RUN_ENCLAVE_CPU_COUNT])
             .args(["--memory", RUN_ENCLAVE_MEMORY_SIZE])
+            .args(["--debug-mode"])
             .output()
             .await?;
 
