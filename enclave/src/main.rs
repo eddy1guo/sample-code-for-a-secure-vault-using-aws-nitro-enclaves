@@ -77,6 +77,7 @@ fn handle_client<S: Read + Write>(mut stream: S) -> Result<()> {
         Ok(result) => result,
         Err(err) => return send_error(stream, err),
     };
+    println!("[enclave] decrypted fields: {:?}", decrypted_fields);
 
     let final_fields = match payload.request.expressions {
         Some(expressions) => match execute_expressions(&decrypted_fields, &expressions) {
@@ -94,6 +95,10 @@ fn handle_client<S: Read + Write>(mut stream: S) -> Result<()> {
     };
 
     let response = EnclaveResponse::new(final_fields, Some(errors));
+    println!(
+        "[enclave] sending response to parent: EnclaveResponse {:?}",
+        response
+    );
 
     let payload: String = serde_json::to_string(&response)
         .map_err(|err| anyhow!("failed to serialize response: {err:?}"))?;

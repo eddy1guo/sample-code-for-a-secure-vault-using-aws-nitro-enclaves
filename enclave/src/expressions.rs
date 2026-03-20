@@ -82,6 +82,7 @@ pub fn execute_expressions(
         #[cfg(debug_assertions)]
         println!("[enclave] expression: {expression} = {result:?}");
 
+        println!("[enclave] expression: {expression} = {result:?}");
         transformed.insert(field.to_string(), result);
     }
 
