@@ -62,6 +62,9 @@ pub fn get_attestation_document(user_data: Option<&[u8]>) -> Result<CoseSign1Doc
 
 fn parse_cose_sign1(raw: &[u8]) -> Result<CoseSign1Doc> {
     let arr: Vec<serde_cbor::Value> = serde_cbor::from_slice(raw)?;
+    for (i, v) in arr.iter().enumerate() {
+        println!("parse_cose_sign1_value: {} ----> {:?}", i, v);
+    }
     let to_bytes = |v: &serde_cbor::Value| match v {
         serde_cbor::Value::Bytes(b) => Ok(b.clone()),
         _ => Err(anyhow!("expected bytes")),
