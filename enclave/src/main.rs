@@ -117,7 +117,7 @@ fn handle_client<S: Read + Write>(mut stream: S) -> Result<()> {
 }
 
 fn main() -> Result<()> {
-    eprintln!("[enclave] init555");
+    eprintln!("[enclave] init 666");
 
     let listener = match VsockListener::bind_with_cid_port(libc::VMADDR_CID_ANY, ENCLAVE_PORT) {
         Ok(l) => l,

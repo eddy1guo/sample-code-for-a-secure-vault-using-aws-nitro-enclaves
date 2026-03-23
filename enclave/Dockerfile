@@ -178,7 +178,7 @@ ARG TARGETPLATFORM
 COPY --from=planner /app/recipe.json recipe.json
 RUN cargo chef cook --release --target $TARGETPLATFORM --recipe-path recipe.json
 COPY . .
-RUN cargo build --target $TARGETPLATFORM --release --color never
+RUN cargo build --target $TARGETPLATFORM --color never
 
 ####################################################################################################
 ## Final image
