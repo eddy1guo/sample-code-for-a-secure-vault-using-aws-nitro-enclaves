@@ -138,9 +138,9 @@ RUN cmake --build json-c/build --parallel $(nproc) --target install
 RUN git clone --depth 1 -b v0.4.0 "https://github.com/aws/aws-nitro-enclaves-nsm-api"
 RUN rustup target add $TARGETPLATFORM
 RUN cd aws-nitro-enclaves-nsm-api \
-    && PATH="$PATH:/root/.cargo/bin" cargo build --release --target $TARGETPLATFORM --jobs $(nproc) -p nsm-lib \
-    && mv target/$TARGETPLATFORM/release/libnsm.so /usr/lib/ \
-    && mv target/$TARGETPLATFORM/release/nsm.h /usr/include/
+    && PATH="$PATH:/root/.cargo/bin" cargo build --target $TARGETPLATFORM --jobs $(nproc) -p nsm-lib \
+    && mv target/$TARGETPLATFORM/debug/libnsm.so /usr/lib/ \
+    && mv target/$TARGETPLATFORM/debug/nsm.h /usr/include/
 
 # AWS Nitro Enclaves SDK
 RUN git clone --depth 1 -b v0.4.3 "https://github.com/aws/aws-nitro-enclaves-sdk-c"
@@ -176,7 +176,7 @@ FROM chef AS builder
 ARG TARGETPLATFORM
 
 COPY --from=planner /app/recipe.json recipe.json
-RUN cargo chef cook --release --target $TARGETPLATFORM --recipe-path recipe.json
+RUN cargo chef cook --target $TARGETPLATFORM --recipe-path recipe.json
 COPY . .
 RUN cargo build --target $TARGETPLATFORM --color never
 
@@ -193,7 +193,7 @@ RUN addgroup -S vault && adduser -S vault -G vault
 WORKDIR /app
 
 # Copy our build
-COPY --from=builder /app/target/${TARGETPLATFORM}/release/enclave-vault /app/enclave-vault
+COPY --from=builder /app/target/${TARGETPLATFORM}/debug/enclave-vault /app/enclave-vault
 
 # Copy NSM library for attestation (only dynamic library needed - others are statically linked)
 COPY --from=kmstool /usr/lib/libnsm.so /usr/lib/libnsm.so
