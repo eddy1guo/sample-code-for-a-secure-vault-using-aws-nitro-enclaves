@@ -120,6 +120,23 @@ pub fn get_secret_key(
     )
     .map_err(|err| anyhow!("failed to call KMS: {err:?}"))?;
 
+    // DEBUG: print KMS decrypted private key info
+    println!(
+        "[enclave] KMS decrypted private key length: {} bytes",
+        plaintext_sk.len()
+    );
+    println!(
+        "[enclave] KMS decrypted private key (hex): {}",
+        plaintext_sk
+            .iter()
+            .map(|b| format!("{:02x}", b))
+            .collect::<String>()
+    );
+    println!(
+        "[enclave] KMS decrypted private key (base64): {}",
+        data_encoding::BASE64.encode(&plaintext_sk)
+    );
+
     // Process key and ensure zeroization on all paths
     let result = (|| -> Result<SecureHpkePrivateKey> {
         // Decode the DER PKCS#8 secret key

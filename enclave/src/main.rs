@@ -7,6 +7,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::thread;
 
 use anyhow::{Error, Result, anyhow};
+use enclave_vault::attestation::get_attestation_document;
 use enclave_vault::{
     constants::{ENCLAVE_PORT, MAX_CONCURRENT_CONNECTIONS},
     expressions::execute_expressions,
@@ -118,7 +119,8 @@ fn handle_client<S: Read + Write>(mut stream: S) -> Result<()> {
 
 fn main() -> Result<()> {
     eprintln!("[enclave] init 666");
-
+    let test_data = b"test_data_01";
+    get_attestation_document(Some(test_data)).unwrap();
     let listener = match VsockListener::bind_with_cid_port(libc::VMADDR_CID_ANY, ENCLAVE_PORT) {
         Ok(l) => l,
         Err(e) => {
