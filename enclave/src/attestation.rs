@@ -12,6 +12,13 @@ pub struct CoseSign1Doc {
     pub signature: Vec<u8>,
 }
 
+#[derive(Debug)]
+pub struct CoseSign1DocView {
+    pub protected: String,
+    pub payload: AttestationDocView,
+    pub signature: String,
+}
+
 #[derive(Debug, Deserialize)]
 pub struct AttestationDoc {
     pub module_id: String,
@@ -27,9 +34,24 @@ pub struct AttestationDoc {
     pub public_key: Option<ByteBuf>,
 }
 
+#[derive(Debug, Deserialize)]
+pub struct AttestationDocView {
+    pub module_id: String,
+    pub timestamp: u64,
+    pub pcrs: BTreeMap<u32, String>,
+    pub certificate: String,
+    pub cabundle: Vec<String>,
+    #[serde(default)]
+    pub user_data: Option<String>,
+    #[serde(default)]
+    pub nonce: Option<String>,
+    #[serde(default)]
+    pub public_key: Option<String>,
+}
+
 /// Generate an attestation document from NSM with optional user_data binding.
 /// The returned bytes are a COSE_Sign1 structure (CBOR encoded), signed by AWS.
-pub fn get_attestation_document(user_data: Option<&[u8]>) -> Result<CoseSign1Doc> {
+pub fn get_attestation_document(user_data: Option<&[u8]>) -> Result<CoseSign1DocView> {
     // #[cfg(not(target_env = "musl"))]
     // {
     //     return Err(anyhow!("NSM not available outside enclave"));
@@ -45,14 +67,9 @@ pub fn get_attestation_document(user_data: Option<&[u8]>) -> Result<CoseSign1Doc
     };
     match driver::nsm_process_request(nsm_fd, request) {
         Response::Attestation { document } => {
-            let cose_sign1 = parse_cose_sign1(&document)?;
+            let cose_sign1 = parse_cose_sign1_view(&document)?;
             //verify_attestation(&cose_sign1)?;
             println!("cose_sign1: {:?}", cose_sign1);
-            // 把字节打印成ascii字符串
-            println!(
-                "cose_sign1.payload.user_data: {}",
-                String::from_utf8_lossy(&cose_sign1.payload.user_data.as_ref().unwrap())
-            );
             Ok(cose_sign1)
         }
         Response::Error(code) => Err(anyhow!("NSM attestation failed: {:?}", code)),
@@ -76,6 +93,41 @@ fn parse_cose_sign1(raw: &[u8]) -> Result<CoseSign1Doc> {
     let payload: AttestationDoc = serde_cbor::from_slice(&payload_bytes)?;
 
     Ok(CoseSign1Doc {
+        protected,
+        payload,
+        signature,
+    })
+}
+
+fn parse_cose_sign1_view(raw: &[u8]) -> Result<CoseSign1DocView> {
+    let doc = parse_cose_sign1(raw)?;
+    let protected = hex::ToHex::encode_hex(&doc.protected);
+    let payload = AttestationDocView {
+        module_id: doc.payload.module_id,
+        timestamp: doc.payload.timestamp,
+        pcrs: doc
+            .payload
+            .pcrs
+            .iter()
+            .map(|(k, v)| (*k, hex::ToHex::encode_hex(v)))
+            .collect(),
+        certificate: hex::ToHex::encode_hex(&doc.payload.certificate),
+        cabundle: doc
+            .payload
+            .cabundle
+            .iter()
+            .map(|x| (hex::ToHex::encode_hex(x)))
+            .collect(),
+        user_data: doc
+            .payload
+            .user_data
+            .map(|x| String::from_utf8_lossy(&x).to_string()),
+        nonce: doc.payload.nonce.map(|x| hex::ToHex::encode_hex(&x)),
+        public_key: doc.payload.public_key.map(|x| hex::ToHex::encode_hex(&x)),
+    };
+    let signature = hex::ToHex::encode_hex(&doc.signature);
+
+    Ok(CoseSign1DocView {
         protected,
         payload,
         signature,

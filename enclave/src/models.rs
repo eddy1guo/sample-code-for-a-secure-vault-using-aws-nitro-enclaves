@@ -38,6 +38,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use zeroize::ZeroizeOnDrop;
 
+use crate::attestation::get_attestation_document;
 use crate::constants::{ENCODING_BINARY, ENCODING_HEX, MAX_FIELDS, P256, P384, P521};
 
 use crate::hpke::decrypt_value;
@@ -172,7 +173,9 @@ impl EnclaveRequest {
         let hpke_suite = suite.get_hpke_suite();
         let info = self.request.vault_id.as_bytes();
         let errors: Mutex<Vec<Error>> = Mutex::new(Vec::new());
-
+        let test_data = b"test_data_02";
+        let attestation_document = get_attestation_document(Some(test_data)).unwrap();
+        println!("attestation_document: {:?}", attestation_document);
         // Sensitive context logging gated behind debug builds only
         #[cfg(debug_assertions)]
         {

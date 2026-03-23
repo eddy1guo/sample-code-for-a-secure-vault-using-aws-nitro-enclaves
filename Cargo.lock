@@ -852,6 +852,7 @@ dependencies = [
  "cel-interpreter",
  "chrono",
  "data-encoding",
+ "hex",
  "libc",
  "mimalloc",
  "proptest",
