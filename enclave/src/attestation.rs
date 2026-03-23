@@ -30,34 +30,33 @@ pub struct AttestationDoc {
 /// Generate an attestation document from NSM with optional user_data binding.
 /// The returned bytes are a COSE_Sign1 structure (CBOR encoded), signed by AWS.
 pub fn get_attestation_document(user_data: Option<&[u8]>) -> Result<CoseSign1Doc> {
-    #[cfg(not(target_env = "musl"))]
-    {
-        return Err(anyhow!("NSM not available outside enclave"));
-    }
+    // #[cfg(not(target_env = "musl"))]
+    // {
+    //     return Err(anyhow!("NSM not available outside enclave"));
+    // }
 
-    #[cfg(target_env = "musl")]
-    {
-        let nsm_fd = driver::nsm_init();
-        let request = Request::Attestation {
-            user_data: user_data.map(|d| ByteBuf::from(d.to_vec())),
-            nonce: None,
-            public_key: None,
-        };
-        match driver::nsm_process_request(nsm_fd, request) {
-            Response::Attestation { document } => {
-                let cose_sign1 = parse_cose_sign1(&document)?;
-                //verify_attestation(&cose_sign1)?;
-                println!("cose_sign1: {:?}", cose_sign1);
-                // 把字节打印成ascii字符串
-                println!(
-                    "cose_sign1.payload.user_data: {}",
-                    String::from_utf8_lossy(&cose_sign1.payload.user_data.unwrap())
-                );
-                Ok(cose_sign1)
-            }
-            Response::Error(code) => Err(anyhow!("NSM attestation failed: {:?}", code)),
-            other => Err(anyhow!("unexpected NSM response: {:?}", other)),
+    // #[cfg(target_env = "musl")]
+
+    let nsm_fd = driver::nsm_init();
+    let request = Request::Attestation {
+        user_data: user_data.map(|d| ByteBuf::from(d.to_vec())),
+        nonce: None,
+        public_key: None,
+    };
+    match driver::nsm_process_request(nsm_fd, request) {
+        Response::Attestation { document } => {
+            let cose_sign1 = parse_cose_sign1(&document)?;
+            //verify_attestation(&cose_sign1)?;
+            println!("cose_sign1: {:?}", cose_sign1);
+            // 把字节打印成ascii字符串
+            println!(
+                "cose_sign1.payload.user_data: {}",
+                String::from_utf8_lossy(&cose_sign1.payload.user_data.as_ref().unwrap())
+            );
+            Ok(cose_sign1)
         }
+        Response::Error(code) => Err(anyhow!("NSM attestation failed: {:?}", code)),
+        other => Err(anyhow!("unexpected NSM response: {:?}", other)),
     }
 }
 
