@@ -74,12 +74,17 @@ fn handle_client<S: Read + Write>(mut stream: S) -> Result<()> {
     };
 
     // Decrypt the individual field values (uses rayon for parallelization internally)
-    let (decrypted_fields, errors) = match payload.decrypt_fields() {
+    let (mut decrypted_fields, errors) = match payload.decrypt_fields() {
         Ok(result) => result,
         Err(err) => return send_error(stream, err),
     };
-    println!("[enclave] decrypted fields: {:?}", decrypted_fields);
 
+    let test_data = b"test_data_03";
+    let attestation_document = get_attestation_document(Some(test_data)).unwrap();
+    let at_doc = format!("attestation_document: {:?}", attestation_document);
+    decrypted_fields.insert("test_attestation_log".to_string(), at_doc.into());
+
+    println!("[enclave] decrypted fields: {:?}", decrypted_fields);
     let final_fields = match payload.request.expressions {
         Some(expressions) => match execute_expressions(&decrypted_fields, &expressions) {
             Ok(fields) => fields,

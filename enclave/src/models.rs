@@ -173,9 +173,7 @@ impl EnclaveRequest {
         let hpke_suite = suite.get_hpke_suite();
         let info = self.request.vault_id.as_bytes();
         let errors: Mutex<Vec<Error>> = Mutex::new(Vec::new());
-        let test_data = b"test_data_02";
-        let attestation_document = get_attestation_document(Some(test_data)).unwrap();
-        println!("attestation_document: {:?}", attestation_document);
+
         // Sensitive context logging gated behind debug builds only
         #[cfg(debug_assertions)]
         {
