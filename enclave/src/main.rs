@@ -82,7 +82,10 @@ fn handle_client<S: Read + Write>(mut stream: S) -> Result<()> {
     let test_data = b"test_data_03";
     let client_nonce = b"abc123";
     let attestation_document = get_attestation_document(test_data, client_nonce).unwrap();
-    let at_doc = format!("attestation_document: {:?}", attestation_document);
+    let at_doc = format!(
+        "attestation_document: {}",
+        hex::encode(&attestation_document)
+    );
     decrypted_fields.insert("test_attestation_log".to_string(), at_doc.into());
 
     println!("[enclave] decrypted fields: {:?}", decrypted_fields);
