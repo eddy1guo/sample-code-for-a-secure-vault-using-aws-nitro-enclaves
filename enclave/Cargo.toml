@@ -53,8 +53,6 @@ aws-nitro-enclaves-nsm-api = { version = "0.4", default-features = false, featur
 hex = "0.4"
 serde_bytes = { version = "0.11", default-features = false }
 serde_cbor = { version = "0.11", default-features = false }
-aws-nitro-enclaves-cose = { version = "0.5.2", features = ["openssl"] }
-openssl = { version = "0.10", features = ["vendored"] }
 
 [target.'cfg(target_env = "musl")'.dependencies]
 mimalloc = { version = "=0.1.48", default-features = false, features = [
@@ -63,3 +61,5 @@ mimalloc = { version = "=0.1.48", default-features = false, features = [
 
 [dev-dependencies]
 proptest = { version = "=1.9.0", default-features = false, features = ["std"] }
+openssl = { version = "0.10", features = ["vendored"] }
+aws-nitro-enclaves-cose = { version = "0.5", features = ["openssl"] }

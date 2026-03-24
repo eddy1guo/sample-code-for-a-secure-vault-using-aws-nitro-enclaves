@@ -1,13 +1,6 @@
 use anyhow::{Result, anyhow, bail};
-use aws_nitro_enclaves_cose::CoseSign1;
-use aws_nitro_enclaves_cose::crypto::Openssl;
-use aws_nitro_enclaves_cose::crypto::SigningPublicKey;
 use aws_nitro_enclaves_nsm_api::api::{Request, Response};
 use aws_nitro_enclaves_nsm_api::driver;
-use openssl::pkey::{PKey, Public};
-use openssl::stack::Stack;
-use openssl::x509::store::X509StoreBuilder;
-use openssl::x509::{X509, X509StoreContext};
 use serde::Deserialize;
 use serde_bytes::ByteBuf;
 use std::collections::BTreeMap;
@@ -137,63 +130,17 @@ fn parse_cose_sign1_view(raw: &[u8]) -> Result<CoseSign1DocView> {
     })
 }
 
-//return user_data
-pub fn verify_attestation<T: AsRef<[u8]>>(
-    cose_bytes: &[u8],
-    expected_pcrs: &BTreeMap<u32, Vec<u8>>,
-    client_nonce: &T,
-    root_pem: &[u8],
-) -> Result<Vec<u8>> {
-    // 1. 解析 COSE_Sign1
-    let cose = CoseSign1::from_bytes(cose_bytes).unwrap();
-
-    let doc: AttestationDoc = serde_cbor::from_slice(&cose.get_payload::<Openssl>(None).unwrap())?;
-
-    // 2. 验证证书链 → AWS Root CA
-    let cert = X509::from_der(&doc.certificate)?;
-    verify_cert_chain(&cert, &doc.cabundle, root_pem)?;
-
-    // 3. 用叶子证书验签
-    let public_key: PKey<Public> = cert.public_key()?;
-    if cose.verify_signature::<Openssl>(&public_key).unwrap().not() {
-        bail!("signature verify failed")
-    }
-
-    // 4. 验证 PCR 值
-    for (idx, expected) in expected_pcrs {
-        let actual = doc.pcrs.get(idx).ok_or(anyhow!("missing PCR{}", idx))?;
-        if actual.as_slice() != expected.as_slice() {
-            return Err(anyhow!("PCR{} mismatch", idx));
-        }
-    }
-
-    // 5. 验证nonce值
-    if doc.nonce.unwrap().as_slice() != client_nonce.as_ref() {
-        bail!("nonce mismatch with enclave")
-    }
-
-    Ok(doc.user_data.unwrap().to_vec())
-}
-
-fn verify_cert_chain(leaf: &X509, cabundle: &[ByteBuf], root_pem: &[u8]) -> Result<()> {
-    let mut store_builder = openssl::x509::store::X509StoreBuilder::new()?;
-    // 添加 AWS Nitro Root CA
-    store_builder.add_cert(X509::from_pem(root_pem)?)?;
-    // 添加中间证书
-    let mut chain = openssl::stack::Stack::new()?;
-    for ca in cabundle {
-        chain.push(X509::from_der(ca)?)?;
-    }
-    let store = store_builder.build();
-    let mut ctx = openssl::x509::X509StoreContext::new()?;
-    ctx.init(&store, leaf, &chain, |c| c.verify_cert())?;
-    Ok(())
-}
-
 //todo: testcase: only
 #[cfg(test)]
 mod tests {
     use super::*;
+    use aws_nitro_enclaves_cose::CoseSign1;
+    use aws_nitro_enclaves_cose::crypto::Openssl;
+    use aws_nitro_enclaves_cose::crypto::SigningPublicKey;
+    use openssl::pkey::{PKey, Public};
+    use openssl::stack::Stack;
+    use openssl::x509::store::X509StoreBuilder;
+    use openssl::x509::{X509, X509StoreContext};
 
     const AWS_NITRO_ROOT_CA_PEM: &str = "-----BEGIN CERTIFICATE-----
 MIICETCCAZagAwIBAgIRAPkxdWgbkK/hHUbMtOTn+FYwCgYIKoZIzj0EAwMwSTEL
@@ -209,6 +156,60 @@ MQCjfy+Rocm9Xue4YnwWmNJVA44fA0P5W2OpYow9OYCVRaEevL8uO1XYru5xtMPW
 rfMCMQCi85sWBbJwKKXdS6BptQFuZbT73o/gBh1qUxl/nNr12UO8Yfwr6wPLb+6N
 IwLz3/Y=
 -----END CERTIFICATE-----";
+
+    //return user_data
+    pub fn verify_attestation<T: AsRef<[u8]>>(
+        cose_bytes: &[u8],
+        expected_pcrs: &BTreeMap<u32, Vec<u8>>,
+        client_nonce: &T,
+        root_pem: &[u8],
+    ) -> Result<Vec<u8>> {
+        // 1. 解析 COSE_Sign1
+        let cose = CoseSign1::from_bytes(cose_bytes).unwrap();
+
+        let doc: AttestationDoc =
+            serde_cbor::from_slice(&cose.get_payload::<Openssl>(None).unwrap())?;
+
+        // 2. 验证证书链 → AWS Root CA
+        let cert = X509::from_der(&doc.certificate)?;
+        verify_cert_chain(&cert, &doc.cabundle, root_pem)?;
+
+        // 3. 用叶子证书验签
+        let public_key: PKey<Public> = cert.public_key()?;
+        if cose.verify_signature::<Openssl>(&public_key).unwrap().not() {
+            bail!("signature verify failed")
+        }
+
+        // 4. 验证 PCR 值
+        for (idx, expected) in expected_pcrs {
+            let actual = doc.pcrs.get(idx).ok_or(anyhow!("missing PCR{}", idx))?;
+            if actual.as_slice() != expected.as_slice() {
+                return Err(anyhow!("PCR{} mismatch", idx));
+            }
+        }
+
+        // 5. 验证nonce值
+        if doc.nonce.unwrap().as_slice() != client_nonce.as_ref() {
+            bail!("nonce mismatch with enclave")
+        }
+
+        Ok(doc.user_data.unwrap().to_vec())
+    }
+
+    fn verify_cert_chain(leaf: &X509, cabundle: &[ByteBuf], root_pem: &[u8]) -> Result<()> {
+        let mut store_builder = openssl::x509::store::X509StoreBuilder::new()?;
+        // 添加 AWS Nitro Root CA
+        store_builder.add_cert(X509::from_pem(root_pem)?)?;
+        // 添加中间证书
+        let mut chain = openssl::stack::Stack::new()?;
+        for ca in cabundle {
+            chain.push(X509::from_der(ca)?)?;
+        }
+        let store = store_builder.build();
+        let mut ctx = openssl::x509::X509StoreContext::new()?;
+        ctx.init(&store, leaf, &chain, |c| c.verify_cert())?;
+        Ok(())
+    }
 
     #[test]
     fn test_doc_verify() -> Result<()> {
