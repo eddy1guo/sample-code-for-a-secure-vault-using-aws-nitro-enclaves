@@ -54,7 +54,7 @@ hex = "0.4"
 serde_bytes = { version = "0.11", default-features = false }
 serde_cbor = { version = "0.11", default-features = false }
 aws-nitro-enclaves-cose = { version = "0.5.2", features = ["openssl"] }
-openssl = "0.10"
+openssl = { version = "0.10", features = ["vendored"] }
 
 [target.'cfg(target_env = "musl")'.dependencies]
 mimalloc = { version = "=0.1.48", default-features = false, features = [
