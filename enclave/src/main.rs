@@ -80,7 +80,8 @@ fn handle_client<S: Read + Write>(mut stream: S) -> Result<()> {
     };
 
     let test_data = b"test_data_03";
-    let attestation_document = get_attestation_document(Some(test_data)).unwrap();
+    let client_nonce = b"abc123";
+    let attestation_document = get_attestation_document(test_data, client_nonce).unwrap();
     let at_doc = format!("attestation_document: {:?}", attestation_document);
     decrypted_fields.insert("test_attestation_log".to_string(), at_doc.into());
 
@@ -123,9 +124,7 @@ fn handle_client<S: Read + Write>(mut stream: S) -> Result<()> {
 }
 
 fn main() -> Result<()> {
-    eprintln!("[enclave] init 666");
-    let test_data = b"test_data_01";
-    get_attestation_document(Some(test_data)).unwrap();
+    eprintln!("[enclave] init 777");
     let listener = match VsockListener::bind_with_cid_port(libc::VMADDR_CID_ANY, ENCLAVE_PORT) {
         Ok(l) => l,
         Err(e) => {
