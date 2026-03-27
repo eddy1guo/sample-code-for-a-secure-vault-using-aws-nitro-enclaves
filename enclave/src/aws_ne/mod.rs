@@ -320,12 +320,12 @@ pub fn kms_decrypt(
 }
 
 #[cfg(target_env = "musl")]
-pub async fn kms_encrypt(
+pub fn kms_encrypt(
     aws_region: &[u8],
     aws_key_id: &[u8],
     aws_secret_key: &[u8],
     aws_session_token: &[u8],
-    kms_key_id: &str,
+    //kms_key_id: &str,
     plaintext: &[u8],
 ) -> Result<Vec<u8>, Error> {
     let region = std::str::from_utf8(aws_region).map_err(|_| Error::SdkGenericError)?;
@@ -348,15 +348,16 @@ pub async fn kms_encrypt(
         .build();
 
     let client = aws_sdk_kms::Client::from_conf(config);
-
-    let resp = client
-        .encrypt()
-        .key_id(kms_key_id)
-        .plaintext(Blob::new(plaintext))
-        .send()
-        .await
-        .map_err(|_| Error::SdkGenericError)?;
-
+    let resp = async_std::task::block_on(async {
+        client
+            .encrypt()
+            //.key_id(kms_key_id)
+            .plaintext(Blob::new(plaintext))
+            .send()
+            .await
+    })
+    .map_err(|_| Error::SdkGenericError)?;
+    println!("encrypt_resp: {:?}", resp);
     //xxx: 此处仅返回    ciphertext_blob 是不够的，需要知道使用了哪个key
     let ciphertext = resp
         .ciphertext_blob()
