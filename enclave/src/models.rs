@@ -39,10 +39,12 @@ use serde_json::Value;
 use zeroize::ZeroizeOnDrop;
 
 use crate::attestation::get_attestation_document;
+use crate::codec::hex::EncodeHex;
 use crate::constants::{ENCODING_BINARY, ENCODING_HEX, MAX_FIELDS, P256, P384, P521};
 
+use crate::ed25519::new_key_pair;
 use crate::hpke::decrypt_value;
-use crate::kms::{SecureHpkePrivateKey, get_secret_key};
+use crate::kms::{SecureHpkePrivateKey, call_kms_encrypt, get_secret_key};
 use crate::utils::base64_decode;
 
 /// AWS credentials for KMS access.
@@ -100,28 +102,48 @@ pub struct WalletSignRequest {
     pub encrypted_private_key: String,
     pub message: String,
     pub nonce: String,
+    pub credential: Credential,
+    pub region: String,
+}
+
+impl WalletSignRequest {
+    pub fn validate(&self) -> Result<()> {
+        todo!()
+    }
+    //fix algorithm with ECDSA_P256_SHA256_ASN1_SIGNING
+    fn get_private_key(&self, suite: &Suite) -> Result<SecureHpkePrivateKey> {
+        //// let alg = suite.get_signing_algorithm();
+
+        // // Decrypt the KMS secret key - wrapped in SecureHpkePrivateKey for zeroization
+        //let sk = get_secret_key(&ECDSA_P256_SHA256_ASN1_SIGNING, self)?;
+
+        // Ok(sk)
+        todo!()
+    }
+    //return encrypted_private_key,public_key
+    pub fn sign(&self) -> Result<(String, String)> {
+        todo!()
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CreateWalletKeyRequest {
     pub nonce: String,
+    pub credential: Credential,
+    pub region: String,
 }
 impl CreateWalletKeyRequest {
     pub fn validate(&self) -> Result<()> {
         todo!()
     }
     //fix algorithm with ECDSA_P256_SHA256_ASN1_SIGNING
-    fn get_private_key(&self, suite: &Suite) -> Result<SecureHpkePrivateKey> {
-        let alg = suite.get_signing_algorithm();
-
-        // Decrypt the KMS secret key - wrapped in SecureHpkePrivateKey for zeroization
-        let sk = get_secret_key(&ECDSA_P256_SHA256_ASN1_SIGNING, self)?;
-
-        Ok(sk)
+    fn encrypt(&self, plaint_text: &str) -> Result<Vec<u8>> {
+        call_kms_encrypt(&self.credential, plaint_text, &self.region)
+            .map_err(|err| anyhow!("failed to call KMS:call_kms_encrypt: {err:?}"))
     }
-    //return encrypted_private_key,public_key
     pub fn create(&self) -> Result<(String, String)> {
-        todo!()
+        let (prikey, pubkey) = new_key_pair();
+        Ok((self.encrypt(&prikey)?.encode_hex(), pubkey))
     }
 }
 

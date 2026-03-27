@@ -3,7 +3,9 @@
 
 pub mod attestation;
 pub mod aws_ne;
+pub mod codec;
 pub mod constants;
+pub mod ed25519;
 pub mod expressions;
 pub mod functions;
 pub mod hpke;
@@ -11,6 +13,3 @@ pub mod kms;
 pub mod models;
 pub mod protocol;
 pub mod utils;
-
-
-

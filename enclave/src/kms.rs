@@ -86,6 +86,26 @@ fn call_kms_decrypt(credential: &Credential, ciphertext: &str, region: &str) -> 
     .map_err(|e| anyhow!("KMS decrypt failed: {}", e))
 }
 
+// encrypt message which encode by bs64
+pub fn call_kms_encrypt(
+    credential: &Credential,
+    ciphertext: &str,
+    region: &str,
+) -> Result<Vec<u8>> {
+    // Base64 decode the ciphertext
+    let ciphertext_bytes = base64_decode(ciphertext)?;
+
+    // Call FFI wrapper directly instead of spawning subprocess
+    aws_ne::kms_decrypt(
+        region.as_bytes(),
+        credential.access_key_id.as_bytes(),
+        credential.secret_access_key.as_bytes(),
+        credential.session_token.as_bytes(),
+        &ciphertext_bytes,
+    )
+    .map_err(|e| anyhow!("KMS decrypt failed: {}", e))
+}
+
 /// Decrypts and extracts the HPKE private key from a KMS-encrypted payload.
 ///
 /// This function:

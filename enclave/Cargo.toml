@@ -44,13 +44,24 @@ vsock = { version = "=0.5.2", default-features = false }
 zeroize = { version = "=1.8.2", default-features = false, features = [
     "zeroize_derive",
 ] }
+ed25519-dalek = "=1.0.1"
+rand = "0.7"
+base64 = "0.22.1"
+bs58 = "0.5.1"
+hex = "0.4"
+aws-sdk-kms = "^1.97.0"
+aws-credential-types = { version = "=1.2.11", default-features = false }
+aws-config = { version = "=1.8.12", default-features = false, features = [
+    "rt-tokio",
+    "behavior-version-latest",
+    "default-https-client",
+] }
 
 
 ## aws-nitro-enclaves-nsm-api = { version = "0.4", default-features = false }
 aws-nitro-enclaves-nsm-api = { version = "0.4", default-features = false, features = [
     "nix",
 ] }
-hex = "0.4"
 serde_bytes = { version = "0.11", default-features = false }
 serde_cbor = { version = "0.11", default-features = false }
 

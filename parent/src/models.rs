@@ -347,6 +347,8 @@ pub struct WalletSignRequest {
 
     #[validate(length(min = 1, max = 1000000000))]
     pub nonce: String,
+    pub credential: Credential,
+    pub region: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -363,6 +365,8 @@ pub struct WalletSignResponse {
 pub struct CreateWalletKeyRequest {
     #[validate(length(min = 1, max = 1000000000))]
     pub nonce: String,
+    pub credential: Credential,
+    pub region: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

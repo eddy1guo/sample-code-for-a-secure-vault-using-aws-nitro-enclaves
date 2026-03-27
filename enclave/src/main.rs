@@ -87,10 +87,9 @@ fn handle_client<S: Read + Write>(mut stream: S) -> Result<()> {
         .map_err(|err| anyhow!("failed to receive message: {err:?}"))
     {
         Ok(payload_buffer) => match parse_payload(&payload_buffer) {
-            Ok(EnclaveAction::Decrypt { inner }) => (
-                "0".to_string().into_bytes(),
-                handle_decrypt(inner, &mut stream)?,
-            ),
+            Ok(EnclaveAction::Decrypt { inner }) => {
+                ("0".to_string().into_bytes(), handle_decrypt(inner)?)
+            }
             Ok(EnclaveAction::WalletSign { inner }) => {
                 (inner.nonce.clone().into_bytes(), handle_wallet_sign(inner)?)
             }
