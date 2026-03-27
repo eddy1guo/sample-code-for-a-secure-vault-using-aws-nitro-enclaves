@@ -31,7 +31,7 @@ use crate::constants::{
     ENCLAVE_PREFIX, MAX_ENCLAVES_PER_INSTANCE, RUN_ENCLAVE_CPU_COUNT, RUN_ENCLAVE_EIF_PATH,
     RUN_ENCLAVE_MEMORY_SIZE,
 };
-use crate::models::{EnclaveDescribeInfo, EnclaveRunInfo};
+use crate::models::{EnclaveAction, EnclaveDescribeInfo, EnclaveRunInfo};
 use crate::{constants, errors::AppError, models::EnclaveRequest};
 use crate::{
     models::EnclaveResponse,
@@ -193,7 +193,7 @@ impl Enclaves {
         &self,
         cid: u32,
         port: u32,
-        payload: EnclaveRequest,
+        payload: EnclaveAction,
     ) -> Result<EnclaveResponse, AppError> {
         // Connect to enclave via vsock
         let mut stream = VsockStream::connect(&VsockAddr::new(cid, port))?;

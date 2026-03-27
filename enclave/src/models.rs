@@ -94,6 +94,57 @@ pub struct EnclaveRequest {
     pub request: ParentRequest,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WalletSignRequest {
+    /// HPKE encrypted private key, hex encoded.
+    pub encrypted_private_key: String,
+    pub message: String,
+    pub nonce: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CreateWalletKeyRequest {
+    pub nonce: String,
+}
+impl CreateWalletKeyRequest {
+    pub fn validate(&self) -> Result<()> {
+        todo!()
+    }
+    //fix algorithm with ECDSA_P256_SHA256_ASN1_SIGNING
+    fn get_private_key(&self, suite: &Suite) -> Result<SecureHpkePrivateKey> {
+        let alg = suite.get_signing_algorithm();
+
+        // Decrypt the KMS secret key - wrapped in SecureHpkePrivateKey for zeroization
+        let sk = get_secret_key(&ECDSA_P256_SHA256_ASN1_SIGNING, self)?;
+
+        Ok(sk)
+    }
+    //return encrypted_private_key,public_key
+    pub fn create(&self) -> Result<(String, String)> {
+        todo!()
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "action")]
+pub enum EnclaveAction {
+    #[serde(rename = "decrypt")]
+    Decrypt {
+        #[serde(flatten)]
+        inner: EnclaveRequest,
+    },
+    #[serde(rename = "wallet_sign")]
+    WalletSign {
+        #[serde(flatten)]
+        inner: WalletSignRequest,
+    },
+    #[serde(rename = "create_wallet_key")]
+    CreateWalletKey {
+        #[serde(flatten)]
+        inner: CreateWalletKeyRequest,
+    },
+}
+
 impl EnclaveRequest {
     /// Validates all required fields before processing.
     ///

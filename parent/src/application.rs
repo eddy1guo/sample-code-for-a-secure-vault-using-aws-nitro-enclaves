@@ -169,6 +169,8 @@ pub fn create_router(options: ParentOptions, enclaves: Arc<Enclaves>) -> Router 
         .route("/enclaves", get(routes::get_enclaves))
         //.route("/enclaves", post(routes::run_enclave))
         .route("/decrypt", post(routes::decrypt))
+        .route("/wallet_sign", post(routes::wallet_sign))
+        .route("/create_wallet_key", post(routes::create_wallet_key))
         //.route("/creds", get(routes::get_credentials))
         .with_state(state)
         .layer(RequestBodyLimitLayer::new(REQUEST_BODY_LIMIT))

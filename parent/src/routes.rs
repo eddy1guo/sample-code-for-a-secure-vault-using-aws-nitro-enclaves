@@ -21,10 +21,14 @@ use crate::application::AppState;
 use crate::constants;
 use crate::errors::AppError;
 use crate::models::{
-    Credential, EnclaveDescribeInfo, EnclaveRequest, EnclaveResponse, EnclaveRunInfo,
-    ParentRequest, ParentResponse,
+    Credential, EnclaveAction, EnclaveDescribeInfo, EnclaveRequest, EnclaveResponse,
+    EnclaveRunInfo, ParentRequest, ParentResponse,
 };
 
+use crate::models::CreateWalletKeyRequest;
+use crate::models::CreateWalletKeyResponse;
+use crate::models::WalletSignRequest;
+use crate::models::WalletSignResponse;
 use axum::Json;
 use axum::extract::State;
 use axum::response::IntoResponse;
@@ -143,6 +147,7 @@ pub async fn decrypt(
         credential,
         request,
     };
+    let request = EnclaveAction::Decrypt { inner: request };
 
     // 4. Select a random enclave for load balancing
     let index = fastrand::usize(..enclaves.len());
@@ -174,6 +179,132 @@ pub async fn decrypt(
 
     // 6. Transform enclave response to parent response format
     let response = ParentResponse {
+        fields: response.fields.unwrap_or_default(),
+        errors: response.errors,
+    };
+
+    Ok(Json(response))
+}
+
+#[tracing::instrument(skip(state, request))]
+pub async fn create_wallet_key(
+    State(state): State<Arc<AppState>>,
+    Json(request): Json<CreateWalletKeyRequest>,
+) -> Result<Json<CreateWalletKeyResponse>, AppError> {
+    request.validate().map_err(|e| {
+        tracing::error!("[parent] validation failed: {}", e);
+        AppError::ValidationError(e.to_string())
+    })?;
+
+    // 2. Get available enclaves early to fail fast if none are available
+    let enclaves: Vec<EnclaveDescribeInfo> = state.enclaves.get_enclaves().await;
+    if enclaves.is_empty() {
+        return Err(AppError::EnclaveNotFound);
+    }
+
+    // 3. Fetch (or use cached) IAM credentials from IMDS
+    tracing::debug!("[parent] fetching credentials from cache");
+    let credential = state.credentials.get_credentials().await.map_err(|e| {
+        tracing::error!("[parent] failed to get credentials: {:?}", e);
+        e
+    })?;
+    tracing::debug!("[parent] credentials retrieved successfully");
+
+    let request = EnclaveAction::CreateWalletKey { inner: request };
+
+    // 4. Select a random enclave for load balancing
+    let index = fastrand::usize(..enclaves.len());
+    let enclave = enclaves.get(index).ok_or(AppError::EnclaveNotFound)?;
+    let cid: u32 = enclave
+        .enclave_cid
+        .try_into()
+        .map_err(|_| AppError::InternalServerError)?;
+
+    tracing::debug!("[parent] sending decrypt request to CID: {:?}", cid);
+
+    // 5. Send request to enclave via vsock (blocking operation)
+    // spawn_blocking is used because vsock I/O is synchronous
+    let enclaves_ref = state.enclaves.clone();
+    let port = constants::ENCLAVE_PORT;
+    let response: EnclaveResponse =
+        tokio::task::spawn_blocking(move || enclaves_ref.decrypt(cid, port, request))
+            .await
+            .map_err(|e| {
+                tracing::error!("[parent] spawn_blocking task failed: {:?}", e);
+                AppError::InternalServerError
+            })?
+            .map_err(|e| {
+                tracing::error!("[parent] enclave decrypt failed: {:?}", e);
+                e
+            })?;
+
+    tracing::debug!("[parent] received response from CID: {:?}", cid);
+
+    // 6. Transform enclave response to parent response format
+    let response = CreateWalletKeyResponse {
+        fields: response.fields.unwrap_or_default(),
+        errors: response.errors,
+    };
+
+    Ok(Json(response))
+}
+
+#[tracing::instrument(skip(state, request))]
+pub async fn wallet_sign(
+    State(state): State<Arc<AppState>>,
+    Json(request): Json<WalletSignRequest>,
+) -> Result<Json<WalletSignResponse>, AppError> {
+    request.validate().map_err(|e| {
+        tracing::error!("[parent] validation failed: {}", e);
+        AppError::ValidationError(e.to_string())
+    })?;
+
+    // 2. Get available enclaves early to fail fast if none are available
+    let enclaves: Vec<EnclaveDescribeInfo> = state.enclaves.get_enclaves().await;
+    if enclaves.is_empty() {
+        return Err(AppError::EnclaveNotFound);
+    }
+
+    // 3. Fetch (or use cached) IAM credentials from IMDS
+    tracing::debug!("[parent] fetching credentials from cache");
+    let credential = state.credentials.get_credentials().await.map_err(|e| {
+        tracing::error!("[parent] failed to get credentials: {:?}", e);
+        e
+    })?;
+    tracing::debug!("[parent] credentials retrieved successfully");
+
+    let request = EnclaveAction::WalletSign { inner: request };
+
+    // 4. Select a random enclave for load balancing
+    let index = fastrand::usize(..enclaves.len());
+    let enclave = enclaves.get(index).ok_or(AppError::EnclaveNotFound)?;
+    let cid: u32 = enclave
+        .enclave_cid
+        .try_into()
+        .map_err(|_| AppError::InternalServerError)?;
+
+    tracing::debug!("[parent] sending decrypt request to CID: {:?}", cid);
+
+    // 5. Send request to enclave via vsock (blocking operation)
+    // spawn_blocking is used because vsock I/O is synchronous
+    let enclaves_ref = state.enclaves.clone();
+    let port = constants::ENCLAVE_PORT;
+    let response: EnclaveResponse =
+        tokio::task::spawn_blocking(move || enclaves_ref.decrypt(cid, port, request))
+            .await
+            .map_err(|e| {
+                tracing::error!("[parent] spawn_blocking task failed: {:?}", e);
+                AppError::InternalServerError
+            })?
+            .map_err(|e| {
+                tracing::error!("[parent] enclave decrypt failed: {:?}", e);
+                e
+            })?;
+
+    tracing::debug!("[parent] received response from CID: {:?}", cid);
+
+    // 6. Transform enclave response to parent response format
+    let response = WalletSignResponse {
         fields: response.fields.unwrap_or_default(),
         errors: response.errors,
     };

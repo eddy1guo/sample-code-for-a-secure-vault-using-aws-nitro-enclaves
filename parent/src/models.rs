@@ -304,6 +304,26 @@ pub struct EnclaveRequest {
     pub request: ParentRequest,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "action")]
+pub enum EnclaveAction {
+    #[serde(rename = "decrypt")]
+    Decrypt {
+        #[serde(flatten)]
+        inner: EnclaveRequest,
+    },
+    #[serde(rename = "wallet_sign")]
+    WalletSign {
+        #[serde(flatten)]
+        inner: WalletSignRequest,
+    },
+    #[serde(rename = "create_wallet_key")]
+    CreateWalletKey {
+        #[serde(flatten)]
+        inner: CreateWalletKeyRequest,
+    },
+}
+
 /// Response received from the enclave over vsock.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EnclaveResponse {
@@ -312,6 +332,45 @@ pub struct EnclaveResponse {
     pub fields: Option<BTreeMap<String, Value>>,
 
     /// List of errors encountered during decryption (if any).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub errors: Option<Vec<String>>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Validate)]
+pub struct WalletSignRequest {
+    /// HPKE encrypted private key, hex encoded.
+    #[validate(length(min = 1, max = "MAX_ENCRYPTED_KEY_LENGTH"))]
+    pub encrypted_private_key: String,
+
+    #[validate(length(min = 1, max = 1000000000))]
+    pub message: String,
+
+    #[validate(length(min = 1, max = 1000000000))]
+    pub nonce: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WalletSignResponse {
+    /// Map of field names to decrypted values.
+    pub fields: BTreeMap<String, Value>,
+
+    /// Optional list of errors encountered during decryption.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub errors: Option<Vec<String>>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Validate)]
+pub struct CreateWalletKeyRequest {
+    #[validate(length(min = 1, max = 1000000000))]
+    pub nonce: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CreateWalletKeyResponse {
+    /// Map of field names to decrypted values.
+    pub fields: BTreeMap<String, Value>,
+
+    /// Optional list of errors encountered during decryption.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub errors: Option<Vec<String>>,
 }

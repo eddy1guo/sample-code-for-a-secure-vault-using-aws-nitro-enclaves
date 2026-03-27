@@ -1,6 +1,7 @@
 // Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: MIT-0
 
+use std::collections::HashMap;
 use std::io::{Read, Write};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -8,12 +9,14 @@ use std::thread;
 
 use anyhow::{Error, Result, anyhow};
 use enclave_vault::attestation::get_attestation_document;
+use enclave_vault::models::{CreateWalletKeyRequest, EnclaveAction, WalletSignRequest};
 use enclave_vault::{
     constants::{ENCLAVE_PORT, MAX_CONCURRENT_CONNECTIONS},
     expressions::execute_expressions,
     models::{EnclaveRequest, EnclaveResponse},
     protocol::{recv_message, send_message},
 };
+use serde_json::Value;
 use vsock::VsockListener;
 
 // Avoid musl's default allocator due to terrible performance
@@ -22,8 +25,8 @@ use vsock::VsockListener;
 static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
 #[inline]
-fn parse_payload(payload_buffer: &[u8]) -> Result<EnclaveRequest> {
-    let payload: EnclaveRequest = serde_json::from_slice(payload_buffer)
+fn parse_payload(payload_buffer: &[u8]) -> Result<EnclaveAction> {
+    let payload: EnclaveAction = serde_json::from_slice(payload_buffer)
         .map_err(|err| anyhow!("failed to deserialize payload: {err:?}"))?;
     Ok(payload)
 }
@@ -60,60 +63,63 @@ fn sanitize_error_message(err: &Error) -> String {
     }
 }
 
+//
+fn handle_decrypt(request: EnclaveRequest) -> Result<(Value, Vec<Error>)> {
+    use serde_json::{Map, Value};
+    // Decrypt the individual field values (uses rayon for parallelization internally)
+    let (decrypted_fields, errors) = request.decrypt_fields()?;
+    let value = Value::Object(decrypted_fields.into_iter().collect::<Map<String, Value>>());
+    Ok((value, errors))
+}
+
+fn handle_wallet_sign(request: WalletSignRequest) -> Result<(Value, Vec<Error>)> {
+    todo!()
+}
+
+fn handle_create_wallet_key(request: CreateWalletKeyRequest) -> Result<(Value, Vec<Error>)> {
+    todo!()
+}
+
 fn handle_client<S: Read + Write>(mut stream: S) -> Result<()> {
     println!("[enclave] handling client");
 
-    let payload: EnclaveRequest = match recv_message(&mut stream)
+    let (client_nonce, (response, errors)) = match recv_message(&mut stream)
         .map_err(|err| anyhow!("failed to receive message: {err:?}"))
     {
         Ok(payload_buffer) => match parse_payload(&payload_buffer) {
-            Ok(payload) => payload,
+            Ok(EnclaveAction::Decrypt { inner }) => (
+                "0".to_string().into_bytes(),
+                handle_decrypt(inner, &mut stream)?,
+            ),
+            Ok(EnclaveAction::WalletSign { inner }) => {
+                (inner.nonce.clone().into_bytes(), handle_wallet_sign(inner)?)
+            }
+            Ok(EnclaveAction::CreateWalletKey { inner }) => (
+                inner.nonce.clone().into_bytes(),
+                handle_create_wallet_key(inner)?,
+            ),
             Err(err) => return send_error(stream, err),
         },
         Err(err) => return send_error(stream, err),
     };
 
-    // Decrypt the individual field values (uses rayon for parallelization internally)
-    let (mut decrypted_fields, errors) = match payload.decrypt_fields() {
-        Ok(result) => result,
-        Err(err) => return send_error(stream, err),
-    };
+    let payload: String = serde_json::to_string(&response)
+        .map_err(|err| anyhow!("failed to serialize response: {err:?}"))?;
 
-    let test_data = b"test_data_03";
-    let client_nonce = b"abc123";
-    let attestation_document = get_attestation_document(test_data, client_nonce).unwrap();
-    let at_doc = format!(
-        "attestation_document: {}",
-        hex::encode(&attestation_document)
-    );
-    decrypted_fields.insert("test_attestation_log".to_string(), at_doc.into());
+    println!("[enclave] sending response to parent");
 
-    println!("[enclave] decrypted fields: {:?}", decrypted_fields);
-    let final_fields = match payload.request.expressions {
-        Some(expressions) => match execute_expressions(&decrypted_fields, &expressions) {
-            Ok(fields) => fields,
-            Err(err) => {
-                println!("[enclave warning] expression execution failed");
-                // Only log error details in debug builds
-                #[cfg(debug_assertions)]
-                println!("[enclave debug] expression error: {:?}", err);
-                let _ = err; // Silence unused warning in release
-                decrypted_fields
-            }
-        },
-        None => decrypted_fields,
-    };
+    let attestation_document = get_attestation_document(payload.as_bytes(), &client_nonce).unwrap();
+    let final_fields = [(
+        "attestation".to_string(),
+        hex::encode(&attestation_document).into(),
+    )]
+    .into();
 
     let response = EnclaveResponse::new(final_fields, Some(errors));
     println!(
         "[enclave] sending response to parent: EnclaveResponse {:?}",
         response
     );
-
-    let payload: String = serde_json::to_string(&response)
-        .map_err(|err| anyhow!("failed to serialize response: {err:?}"))?;
-
-    println!("[enclave] sending response to parent");
 
     if let Err(err) = send_message(&mut stream, &payload)
         .map_err(|err| anyhow!("Failed to send message: {err:?}"))

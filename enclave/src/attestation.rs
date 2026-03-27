@@ -141,7 +141,7 @@ mod tests {
     use openssl::stack::Stack;
     use openssl::x509::store::X509StoreBuilder;
     use openssl::x509::{X509, X509StoreContext};
-
+    //ref: https://aws-nitro-enclaves.amazonaws.com/AWS_NitroEnclaves_Root-G1.zip
     const AWS_NITRO_ROOT_CA_PEM: &str = "-----BEGIN CERTIFICATE-----
 MIICETCCAZagAwIBAgIRAPkxdWgbkK/hHUbMtOTn+FYwCgYIKoZIzj0EAwMwSTEL
 MAkGA1UEBhMCVVMxDzANBgNVBAoMBkFtYXpvbjEMMAoGA1UECwwDQVdTMRswGQYD

@@ -316,6 +316,140 @@ pub fn kms_decrypt(
     Err(Error::SdkInitError)
 }
 
+pub fn kms_encrypt(
+    aws_region: &[u8],
+    aws_key_id: &[u8],
+    aws_secret_key: &[u8],
+    aws_session_token: &[u8],
+    ciphertext: &[u8],
+) -> Result<Vec<u8>, Error> {
+    let mut resources = KmsResources::new();
+
+    unsafe {
+        // Step 1: Initialize SDK with null allocator (uses default)
+        aws_nitro_enclaves_library_init(ptr::null_mut());
+
+        // Step 2: Get allocator for subsequent allocations
+        resources.allocator = aws_nitro_enclaves_get_allocator();
+        if resources.allocator.is_null() {
+            resources.cleanup();
+            return Err(Error::SdkInitError);
+        }
+
+        // Step 3: Create aws_string instances for credentials
+        resources.region =
+            aws_string_new_from_array(resources.allocator, aws_region.as_ptr(), aws_region.len());
+        if resources.region.is_null() {
+            resources.cleanup();
+            return Err(Error::SdkGenericError);
+        }
+
+        resources.access_key_id =
+            aws_string_new_from_array(resources.allocator, aws_key_id.as_ptr(), aws_key_id.len());
+        if resources.access_key_id.is_null() {
+            resources.cleanup();
+            return Err(Error::SdkGenericError);
+        }
+
+        resources.secret_access_key = aws_string_new_from_array(
+            resources.allocator,
+            aws_secret_key.as_ptr(),
+            aws_secret_key.len(),
+        );
+        if resources.secret_access_key.is_null() {
+            resources.cleanup();
+            return Err(Error::SdkGenericError);
+        }
+
+        resources.session_token = aws_string_new_from_array(
+            resources.allocator,
+            aws_session_token.as_ptr(),
+            aws_session_token.len(),
+        );
+        if resources.session_token.is_null() {
+            resources.cleanup();
+            return Err(Error::SdkGenericError);
+        }
+
+        // Step 4: Configure vsock endpoint (CID 3, port 8000)
+        let mut endpoint = aws_socket_endpoint {
+            address: [0u8; AWS_ADDRESS_MAX_LEN],
+            port: AWS_NE_VSOCK_PROXY_PORT,
+        };
+        // Copy parent CID address ("3\0")
+        endpoint.address[..AWS_NE_VSOCK_PROXY_ADDR.len()].copy_from_slice(&AWS_NE_VSOCK_PROXY_ADDR);
+
+        // Step 5: Create KMS client configuration
+        resources.config = aws_nitro_enclaves_kms_client_config_default(
+            resources.region,
+            &mut endpoint,
+            AWS_SOCKET_VSOCK_DOMAIN,
+            resources.access_key_id,
+            resources.secret_access_key,
+            resources.session_token,
+        );
+        if resources.config.is_null() {
+            resources.cleanup();
+            return Err(Error::SdkKmsConfigError);
+        }
+
+        // Step 6: Create KMS client
+        resources.client = aws_nitro_enclaves_kms_client_new(resources.config);
+        if resources.client.is_null() {
+            resources.cleanup();
+            return Err(Error::SdkKmsClientError);
+        }
+
+        // Step 7: Prepare ciphertext buffer (does not copy data)
+        let ciphertext_buf = aws_byte_buf {
+            len: ciphertext.len(),
+            buffer: ciphertext.as_ptr() as *mut u8,
+            capacity: ciphertext.len(),
+            allocator: ptr::null_mut(),
+        };
+
+        // Step 8: Prepare plaintext output buffer (will be allocated by SDK)
+        let mut plaintext_buf = aws_byte_buf {
+            len: 0,
+            buffer: ptr::null_mut(),
+            capacity: 0,
+            allocator: ptr::null_mut(),
+        };
+
+        // Step 9: Call KMS decrypt (generates attestation document internally)
+        // Pass null for key_id and encryption_algorithm to use defaults
+        let rc = aws_kms_decrypt_blocking(
+            resources.client,
+            ptr::null_mut(), // key_id (use default from ciphertext)
+            ptr::null_mut(), // encryption_algorithm (use default)
+            &ciphertext_buf,
+            &mut plaintext_buf,
+        );
+
+        if rc != 0 {
+            // Store buffer for cleanup even on error
+            resources.plaintext_buf = Some(plaintext_buf);
+            resources.cleanup();
+            return Err(Error::SdkKmsDecryptError);
+        }
+
+        // Step 10: Copy plaintext to Vec<u8> before cleanup
+        let plaintext = if !plaintext_buf.buffer.is_null() && plaintext_buf.len > 0 {
+            slice::from_raw_parts(plaintext_buf.buffer, plaintext_buf.len).to_vec()
+        } else {
+            Vec::new()
+        };
+
+        // Step 11: Store buffer for secure cleanup
+        resources.plaintext_buf = Some(plaintext_buf);
+
+        // Step 12: Clean up all resources in reverse order
+        resources.cleanup();
+
+        Ok(plaintext)
+    }
+}
+
 // =============================================================================
 // Tests
 // =============================================================================
