@@ -78,6 +78,7 @@ fn handle_wallet_sign(request: WalletSignRequest) -> Result<(Value, Vec<Error>)>
 
 fn handle_create_wallet_key(request: CreateWalletKeyRequest) -> Result<(Value, Vec<Error>)> {
     use serde_json::{Map, Value};
+    println!("start to create wallet key");
     // Decrypt the individual field values (uses rayon for parallelization internally)
     let (prikey, pubkey) = request.create()?;
     let mut fields: HashMap<String, Value> = Default::default();
