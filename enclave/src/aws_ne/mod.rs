@@ -348,12 +348,15 @@ pub fn kms_encrypt(
 
         // Step 3: Create credential strings
         // Step 3: Create aws_string instances for credentials
+        println!("line {}", line!());
         resources.region =
             aws_string_new_from_array(resources.allocator, aws_region.as_ptr(), aws_region.len());
         if resources.region.is_null() {
             resources.cleanup();
+            println!("line {}", line!());
             return Err(Error::SdkGenericError);
         }
+        println!("line {}", line!());
         resources.access_key_id =
             aws_string_new_from_array(resources.allocator, aws_key_id.as_ptr(), aws_key_id.len());
         if resources.access_key_id.is_null() {
@@ -361,27 +364,33 @@ pub fn kms_encrypt(
             return Err(Error::SdkGenericError);
         }
 
+        println!("line {}", line!());
         resources.secret_access_key = aws_string_new_from_array(
             resources.allocator,
             aws_secret_key.as_ptr(),
             aws_secret_key.len(),
         );
+        println!("line {}", line!());
         if resources.secret_access_key.is_null() {
             resources.cleanup();
+            println!("line {}", line!());
             return Err(Error::SdkGenericError);
         }
-
+        println!("line {}", line!());
         resources.session_token = aws_string_new_from_array(
             resources.allocator,
             aws_session_token.as_ptr(),
             aws_session_token.len(),
         );
+        println!("line {}", line!());
         if resources.session_token.is_null() {
             resources.cleanup();
+            println!("line {}", line!());
             return Err(Error::SdkGenericError);
         }
 
         // Step 4: Configure vsock endpoint (CID 3, port 8000)
+        println!("line {}", line!());
         let mut endpoint = aws_socket_endpoint {
             address: [0u8; AWS_ADDRESS_MAX_LEN],
             port: AWS_NE_VSOCK_PROXY_PORT,
@@ -389,6 +398,7 @@ pub fn kms_encrypt(
         endpoint.address[..AWS_NE_VSOCK_PROXY_ADDR.len()].copy_from_slice(&AWS_NE_VSOCK_PROXY_ADDR);
 
         // Step 5: Create KMS client config
+        println!("line {}", line!());
         resources.config = aws_nitro_enclaves_kms_client_config_default(
             resources.region,
             &mut endpoint,
@@ -399,36 +409,43 @@ pub fn kms_encrypt(
         );
         if resources.config.is_null() {
             resources.cleanup();
+            println!("line {}", line!());
             return Err(Error::SdkKmsConfigError);
         }
 
+        println!("line {}", line!());
         // Step 6: Create KMS client
         resources.client = aws_nitro_enclaves_kms_client_new(resources.config);
         if resources.client.is_null() {
             resources.cleanup();
+            println!("line {}", line!());
             return Err(Error::SdkKmsClientError);
         }
 
         // Step 7: Create key_id string
+        println!("line {}", line!());
         let key_id_bytes = key_id.as_bytes();
         let kms_key_id = aws_string_new_from_array(
             resources.allocator,
             key_id_bytes.as_ptr(),
             key_id_bytes.len(),
         );
+        println!("line {}", line!());
         if kms_key_id.is_null() {
             resources.cleanup();
+            println!("line {}", line!());
             return Err(Error::SdkGenericError);
         }
 
         // Step 8: Prepare plaintext buffer
+        println!("line {}", line!());
         let plaintext_buf = aws_byte_buf {
             len: plaintext.len(),
             buffer: plaintext.as_ptr() as *mut u8,
             capacity: plaintext.len(),
             allocator: ptr::null_mut(),
         };
-
+        println!("line {}", line!());
         // Step 9: Prepare ciphertext output buffer
         let mut ciphertext_buf = aws_byte_buf {
             len: 0,
@@ -436,6 +453,15 @@ pub fn kms_encrypt(
             capacity: 0,
             allocator: ptr::null_mut(),
         };
+        println!("line {}", line!());
+
+        // let rc = aws_kms_decrypt_blocking(
+        //     resources.client,
+        //     ptr::null_mut(), // key_id (use default from ciphertext)
+        //     ptr::null_mut(), // encryption_algorithm (use default)
+        //     &ciphertext_buf,
+        //     &mut plaintext_buf,
+        // );
 
         // Step 10: Call KMS encrypt
         let rc = aws_kms_encrypt_blocking(
@@ -445,15 +471,18 @@ pub fn kms_encrypt(
             &mut ciphertext_buf,
         );
 
+        println!("line {}", line!());
         // Clean up key_id string
         aws_string_destroy(kms_key_id);
 
         if rc != 0 {
             resources.cleanup();
+            println!("line {}", line!());
             return Err(Error::SdkGenericError);
         }
 
         // Step 11: Copy ciphertext to Vec<u8>
+        println!("line {}", line!());
         let result = if !ciphertext_buf.buffer.is_null() && ciphertext_buf.len > 0 {
             slice::from_raw_parts(ciphertext_buf.buffer, ciphertext_buf.len).to_vec()
         } else {
@@ -461,6 +490,7 @@ pub fn kms_encrypt(
         };
 
         // Step 12: Cleanup
+        println!("line {}", line!());
         resources.cleanup();
 
         Ok(result)
