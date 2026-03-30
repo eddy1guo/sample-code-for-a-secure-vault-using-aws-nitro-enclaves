@@ -31,7 +31,11 @@ use ffi::{
 };
 
 #[cfg(target_env = "musl")]
+use crate::aws_ne::ffi::aws_error_str;
+#[cfg(target_env = "musl")]
 use crate::aws_ne::ffi::aws_kms_encrypt_blocking;
+#[cfg(target_env = "musl")]
+use crate::aws_ne::ffi::aws_last_error;
 #[cfg(target_env = "musl")]
 use crate::aws_ne::ffi::aws_string_destroy;
 
@@ -472,10 +476,16 @@ pub fn kms_encrypt(
         );
 
         println!("line {}", line!());
-        // Clean up key_id string
         aws_string_destroy(kms_key_id);
 
         if rc != 0 {
+            let err_code = aws_last_error();
+            let err_msg = aws_error_str(err_code);
+            let msg = std::ffi::CStr::from_ptr(err_msg as *const i8);
+            println!(
+                "KMS encrypt failed: rc={}, err_code={}, msg={:?}",
+                rc, err_code, msg
+            );
             resources.cleanup();
             println!("line {}", line!());
             return Err(Error::SdkGenericError);

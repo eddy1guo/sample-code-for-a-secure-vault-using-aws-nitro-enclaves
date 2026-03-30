@@ -171,6 +171,9 @@ unsafe extern "C" {
         ciphertext_blob: *mut aws_byte_buf,
     ) -> c_int;
     pub fn aws_string_destroy(str: *mut aws_string);
+    pub fn aws_last_error() -> c_int;
+    pub fn aws_error_str(err: c_int) -> *const u8;
+
 }
 
 // =============================================================================
