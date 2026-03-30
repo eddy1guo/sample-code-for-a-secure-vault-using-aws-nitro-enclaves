@@ -1156,6 +1156,7 @@ dependencies = [
  "serde_bytes",
  "serde_cbor",
  "serde_json",
+ "tokio",
  "vsock",
  "zeroize",
 ]
@@ -3145,6 +3146,7 @@ dependencies = [
  "bytes",
  "libc",
  "mio",
+ "parking_lot",
  "pin-project-lite",
  "signal-hook-registry",
  "socket2 0.6.1",

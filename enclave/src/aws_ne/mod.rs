@@ -349,15 +349,17 @@ pub fn kms_encrypt(
         .build();
 
     let client = aws_sdk_kms::Client::from_conf(config);
-    let resp = async_std::task::block_on(async {
-        client
-            .encrypt()
-            //.key_id(kms_key_id)
-            .plaintext(Blob::new(plaintext))
-            .send()
-            .await
-    })
-    .map_err(|_| Error::SdkGenericError)?;
+    println!("start tokio block on");
+    let resp = tokio::runtime::Runtime::new()
+        .unwrap()
+        .block_on(async {
+            client
+                .encrypt()
+                .plaintext(Blob::new(plaintext))
+                .send()
+                .await
+        })
+        .map_err(|_| Error::SdkGenericError)?;
     println!("encrypt_resp: {:?}", resp);
     //xxx: 此处仅返回    ciphertext_blob 是不够的，需要知道使用了哪个key
     let ciphertext = resp
