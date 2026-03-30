@@ -113,7 +113,7 @@ fn handle_client<S: Read + Write>(mut stream: S) -> Result<()> {
     let payload: String = serde_json::to_string(&response)
         .map_err(|err| anyhow!("failed to serialize response: {err:?}"))?;
 
-    println!("[enclave] sending response to parent");
+    println!("[enclave] sending response to parent: payload {}", payload);
 
     let attestation_document = get_attestation_document(payload.as_bytes(), &client_nonce).unwrap();
     let final_fields = [(
