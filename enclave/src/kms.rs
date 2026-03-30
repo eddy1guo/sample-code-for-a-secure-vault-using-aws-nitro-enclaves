@@ -87,7 +87,12 @@ fn call_kms_decrypt(credential: &Credential, ciphertext: &str, region: &str) -> 
 }
 
 // encrypt message which encode by bs64
-pub fn call_kms_encrypt(credential: &Credential, plaintext: &str, region: &str) -> Result<Vec<u8>> {
+pub fn call_kms_encrypt(
+    credential: &Credential,
+    plaintext: &str,
+    region: &str,
+    key_id: &str,
+) -> Result<Vec<u8>> {
     // Base64 decode the ciphertext
     let plaintext_bytes = plaintext.as_bytes().to_vec();
 
@@ -98,6 +103,7 @@ pub fn call_kms_encrypt(credential: &Credential, plaintext: &str, region: &str) 
         credential.secret_access_key.as_bytes(),
         credential.session_token.as_bytes(),
         &plaintext_bytes,
+        &key_id,
     )
     .map_err(|e| anyhow!("KMS decrypt failed: {}", e))
 }

@@ -128,6 +128,7 @@ impl WalletSignRequest {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CreateWalletKeyRequest {
     pub nonce: String,
+    pub key_id: String,
     pub region: String,
 }
 impl EnclaveRequest<CreateWalletKeyRequest> {
@@ -136,7 +137,7 @@ impl EnclaveRequest<CreateWalletKeyRequest> {
     }
     //fix algorithm with ECDSA_P256_SHA256_ASN1_SIGNING
     fn encrypt(&self, plaint_text: &str) -> Result<Vec<u8>> {
-        call_kms_encrypt(&self.credential, plaint_text, &self.request.region)
+        call_kms_encrypt(&self.credential, plaint_text, &self.request.region,&self.request.key_id)
             .map_err(|err| anyhow!("failed to call KMS:call_kms_encrypt: {err:?}"))
     }
     pub fn create(&self) -> Result<(String, String)> {

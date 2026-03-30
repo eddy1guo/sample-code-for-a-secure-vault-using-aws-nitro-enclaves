@@ -327,6 +327,7 @@ pub fn kms_encrypt(
     aws_session_token: &[u8],
     //kms_key_id: &str,
     plaintext: &[u8],
+    key_id: &str,
 ) -> Result<Vec<u8>, Error> {
     let region = std::str::from_utf8(aws_region).map_err(|_| Error::SdkGenericError)?;
     let access_key = std::str::from_utf8(aws_key_id).map_err(|_| Error::SdkGenericError)?;
@@ -355,6 +356,7 @@ pub fn kms_encrypt(
         .block_on(async {
             client
                 .encrypt()
+                .key_id(key_id)
                 .plaintext(Blob::new(plaintext))
                 .send()
                 .await
