@@ -296,12 +296,12 @@ pub struct ParentResponse {
 /// Combines the original decrypt request with AWS credentials needed
 /// for KMS access within the enclave.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct EnclaveRequest {
+pub struct EnclaveRequest<T> {
     /// AWS credentials for KMS access.
     pub credential: Credential,
 
     /// The original decrypt request.
-    pub request: ParentRequest,
+    pub request: T,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -310,17 +310,17 @@ pub enum EnclaveAction {
     #[serde(rename = "decrypt")]
     Decrypt {
         #[serde(flatten)]
-        inner: EnclaveRequest,
+        inner: EnclaveRequest<ParentRequest>,
     },
     #[serde(rename = "wallet_sign")]
     WalletSign {
         #[serde(flatten)]
-        inner: WalletSignRequest,
+        inner: EnclaveRequest<WalletSignRequest>,
     },
     #[serde(rename = "create_wallet_key")]
     CreateWalletKey {
         #[serde(flatten)]
-        inner: CreateWalletKeyRequest,
+        inner: EnclaveRequest<CreateWalletKeyRequest>,
     },
 }
 
@@ -347,7 +347,6 @@ pub struct WalletSignRequest {
 
     #[validate(length(min = 1, max = 1000000000))]
     pub nonce: String,
-    pub credential: Credential,
     pub region: String,
 }
 
@@ -365,7 +364,6 @@ pub struct WalletSignResponse {
 pub struct CreateWalletKeyRequest {
     #[validate(length(min = 1, max = 1000000000))]
     pub nonce: String,
-    pub credential: Credential,
     pub region: String,
 }
 

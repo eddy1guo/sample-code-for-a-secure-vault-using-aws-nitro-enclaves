@@ -91,9 +91,9 @@ pub struct ParentRequest {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct EnclaveRequest {
+pub struct EnclaveRequest<T> {
     pub credential: Credential,
-    pub request: ParentRequest,
+    pub request: T,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -129,16 +129,15 @@ impl WalletSignRequest {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CreateWalletKeyRequest {
     pub nonce: String,
-    pub credential: Credential,
     pub region: String,
 }
-impl CreateWalletKeyRequest {
+impl EnclaveRequest<CreateWalletKeyRequest> {
     pub fn validate(&self) -> Result<()> {
         todo!()
     }
     //fix algorithm with ECDSA_P256_SHA256_ASN1_SIGNING
     fn encrypt(&self, plaint_text: &str) -> Result<Vec<u8>> {
-        call_kms_encrypt(&self.credential, plaint_text, &self.region)
+        call_kms_encrypt(&self.credential, plaint_text, &self.request.region)
             .map_err(|err| anyhow!("failed to call KMS:call_kms_encrypt: {err:?}"))
     }
     pub fn create(&self) -> Result<(String, String)> {
@@ -153,21 +152,21 @@ pub enum EnclaveAction {
     #[serde(rename = "decrypt")]
     Decrypt {
         #[serde(flatten)]
-        inner: EnclaveRequest,
+        inner: EnclaveRequest<ParentRequest>,
     },
     #[serde(rename = "wallet_sign")]
     WalletSign {
         #[serde(flatten)]
-        inner: WalletSignRequest,
+        inner: EnclaveRequest<WalletSignRequest>,
     },
     #[serde(rename = "create_wallet_key")]
     CreateWalletKey {
         #[serde(flatten)]
-        inner: CreateWalletKeyRequest,
+        inner: EnclaveRequest<CreateWalletKeyRequest>,
     },
 }
 
-impl EnclaveRequest {
+impl EnclaveRequest<ParentRequest> {
     /// Validates all required fields before processing.
     ///
     /// # Errors

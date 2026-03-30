@@ -22,7 +22,7 @@ use rustls::crypto::hpke::HpkePrivateKey;
 use zeroize::{Zeroize, Zeroizing};
 
 use crate::aws_ne;
-use crate::models::{Credential, EnclaveRequest};
+use crate::models::{Credential, EnclaveRequest, ParentRequest};
 use crate::utils::base64_decode;
 
 /// A secure wrapper for HPKE private keys that zeroizes key material on drop.
@@ -126,7 +126,7 @@ pub fn call_kms_encrypt(credential: &Credential, plaintext: &str, region: &str) 
 /// - Even if an error occurs during processing, intermediate materials are zeroized
 pub fn get_secret_key(
     alg: &'static EcdsaSigningAlgorithm,
-    payload: &EnclaveRequest,
+    payload: &EnclaveRequest<ParentRequest>,
 ) -> Result<SecureHpkePrivateKey> {
     // Call KMS decrypt via FFI wrapper - returns plaintext bytes directly
     let mut plaintext_sk = call_kms_decrypt(

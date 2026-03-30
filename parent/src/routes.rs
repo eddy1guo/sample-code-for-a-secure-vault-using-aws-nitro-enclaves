@@ -209,12 +209,20 @@ pub async fn create_wallet_key(
         e
     })?;
     tracing::debug!("[parent] credentials retrieved successfully");
-
+    let credential = state.credentials.get_credentials().await.map_err(|e| {
+        tracing::error!("[parent] failed to get credentials: {:?}", e);
+        e
+    })?;
     let request = CreateWalletKeyRequest {
         nonce: request.nonce,
-        credential: credential,
         region: request.region,
     };
+
+    let request = EnclaveRequest {
+        credential,
+        request,
+    };
+
     let request = EnclaveAction::CreateWalletKey { inner: request };
 
     // 4. Select a random enclave for load balancing
@@ -282,9 +290,14 @@ pub async fn wallet_sign(
         encrypted_private_key: request.encrypted_private_key,
         message: request.message,
         nonce: request.nonce,
-        credential,
         region: request.region,
     };
+
+    let request = EnclaveRequest {
+        credential,
+        request,
+    };
+
     let request = EnclaveAction::WalletSign { inner: request };
 
     // 4. Select a random enclave for load balancing
