@@ -336,16 +336,14 @@ pub fn kms_encrypt(
     unsafe {
         let mut resources = KmsResources::new();
 
-        // Step 1: Initialize SDK
-        resources.allocator = aws_nitro_enclaves_get_allocator();
-        aws_nitro_enclaves_library_init(resources.allocator);
+        // Step 1: Initialize SDK with null allocator (uses default)
+        aws_nitro_enclaves_library_init(ptr::null_mut());
 
-        // Step 2: Create region string
-        resources.region =
-            aws_string_new_from_array(resources.allocator, aws_region.as_ptr(), aws_region.len());
-        if resources.region.is_null() {
+        // Step 2: Get allocator for subsequent allocations
+        resources.allocator = aws_nitro_enclaves_get_allocator();
+        if resources.allocator.is_null() {
             resources.cleanup();
-            return Err(Error::SdkGenericError);
+            return Err(Error::SdkInitError);
         }
 
         // Step 3: Create credential strings
