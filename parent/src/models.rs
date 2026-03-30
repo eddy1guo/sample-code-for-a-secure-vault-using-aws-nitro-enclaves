@@ -365,6 +365,7 @@ pub struct CreateWalletKeyRequest {
     #[validate(length(min = 1, max = 1000000000))]
     pub nonce: String,
     pub region: String,
+    pub key_id: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

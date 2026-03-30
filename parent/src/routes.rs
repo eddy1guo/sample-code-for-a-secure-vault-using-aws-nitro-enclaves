@@ -213,10 +213,6 @@ pub async fn create_wallet_key(
         tracing::error!("[parent] failed to get credentials: {:?}", e);
         e
     })?;
-    let request = CreateWalletKeyRequest {
-        nonce: request.nonce,
-        region: request.region,
-    };
 
     let request = EnclaveRequest {
         credential,
