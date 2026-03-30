@@ -347,6 +347,13 @@ pub fn kms_encrypt(
         }
 
         // Step 3: Create credential strings
+        // Step 3: Create aws_string instances for credentials
+        resources.region =
+            aws_string_new_from_array(resources.allocator, aws_region.as_ptr(), aws_region.len());
+        if resources.region.is_null() {
+            resources.cleanup();
+            return Err(Error::SdkGenericError);
+        }
         resources.access_key_id =
             aws_string_new_from_array(resources.allocator, aws_key_id.as_ptr(), aws_key_id.len());
         if resources.access_key_id.is_null() {
