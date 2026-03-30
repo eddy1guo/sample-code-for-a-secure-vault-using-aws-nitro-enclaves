@@ -481,7 +481,7 @@ pub fn kms_encrypt(
         if rc != 0 {
             let err_code = aws_last_error();
             let err_msg = aws_error_str(err_code);
-            let msg = std::ffi::CStr::from_ptr(err_msg as *const i8);
+            let msg = std::ffi::CStr::from_ptr(err_msg as *const std::ffi::c_char);
             println!(
                 "KMS encrypt failed: rc={}, err_code={}, msg={:?}",
                 rc, err_code, msg
