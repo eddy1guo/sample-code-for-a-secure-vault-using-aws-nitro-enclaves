@@ -343,6 +343,7 @@ pub fn kms_encrypt(
     );
 
     let config = aws_sdk_kms::Config::builder()
+        .behavior_version_latest()
         .region(Region::new(region.to_string()))
         .credentials_provider(credentials)
         .build();
