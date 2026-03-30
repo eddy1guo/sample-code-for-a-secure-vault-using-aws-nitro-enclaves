@@ -162,6 +162,15 @@ unsafe extern "C" {
         ciphertext: *const aws_byte_buf,
         plaintext: *mut aws_byte_buf,
     ) -> c_int;
+
+    /// Perform a blocking KMS encrypt operation
+    pub fn aws_kms_encrypt_blocking(
+        client: *mut aws_nitro_enclaves_kms_client,
+        key_id: *mut aws_string,
+        plaintext: *const aws_byte_buf,
+        ciphertext_blob: *mut aws_byte_buf,
+    ) -> c_int;
+    pub fn aws_string_destroy(str: *mut aws_string);
 }
 
 // =============================================================================

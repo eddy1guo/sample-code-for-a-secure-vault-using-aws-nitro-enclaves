@@ -30,6 +30,11 @@ use ffi::{
     aws_string_new_from_array,
 };
 
+#[cfg(target_env = "musl")]
+use crate::aws_ne::ffi::aws_kms_encrypt_blocking;
+#[cfg(target_env = "musl")]
+use crate::aws_ne::ffi::aws_string_destroy;
+
 /// Errors that can occur during KMS operations via FFI
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Error {
@@ -321,6 +326,144 @@ pub fn kms_decrypt(
 
 #[cfg(target_env = "musl")]
 pub fn kms_encrypt(
+    aws_region: &[u8],
+    aws_key_id: &[u8],
+    aws_secret_key: &[u8],
+    aws_session_token: &[u8],
+    plaintext: &[u8],
+    key_id: &str,
+) -> Result<Vec<u8>, Error> {
+    unsafe {
+        let mut resources = KmsResources::new();
+
+        // Step 1: Initialize SDK
+        resources.allocator = aws_nitro_enclaves_get_allocator();
+        aws_nitro_enclaves_library_init(resources.allocator);
+
+        // Step 2: Create region string
+        resources.region =
+            aws_string_new_from_array(resources.allocator, aws_region.as_ptr(), aws_region.len());
+        if resources.region.is_null() {
+            resources.cleanup();
+            return Err(Error::SdkGenericError);
+        }
+
+        // Step 3: Create credential strings
+        resources.access_key_id =
+            aws_string_new_from_array(resources.allocator, aws_key_id.as_ptr(), aws_key_id.len());
+        if resources.access_key_id.is_null() {
+            resources.cleanup();
+            return Err(Error::SdkGenericError);
+        }
+
+        resources.secret_access_key = aws_string_new_from_array(
+            resources.allocator,
+            aws_secret_key.as_ptr(),
+            aws_secret_key.len(),
+        );
+        if resources.secret_access_key.is_null() {
+            resources.cleanup();
+            return Err(Error::SdkGenericError);
+        }
+
+        resources.session_token = aws_string_new_from_array(
+            resources.allocator,
+            aws_session_token.as_ptr(),
+            aws_session_token.len(),
+        );
+        if resources.session_token.is_null() {
+            resources.cleanup();
+            return Err(Error::SdkGenericError);
+        }
+
+        // Step 4: Configure vsock endpoint (CID 3, port 8000)
+        let mut endpoint = aws_socket_endpoint {
+            address: [0u8; AWS_ADDRESS_MAX_LEN],
+            port: AWS_NE_VSOCK_PROXY_PORT,
+        };
+        endpoint.address[..AWS_NE_VSOCK_PROXY_ADDR.len()].copy_from_slice(&AWS_NE_VSOCK_PROXY_ADDR);
+
+        // Step 5: Create KMS client config
+        resources.config = aws_nitro_enclaves_kms_client_config_default(
+            resources.region,
+            &mut endpoint,
+            AWS_SOCKET_VSOCK_DOMAIN,
+            resources.access_key_id,
+            resources.secret_access_key,
+            resources.session_token,
+        );
+        if resources.config.is_null() {
+            resources.cleanup();
+            return Err(Error::SdkKmsConfigError);
+        }
+
+        // Step 6: Create KMS client
+        resources.client = aws_nitro_enclaves_kms_client_new(resources.config);
+        if resources.client.is_null() {
+            resources.cleanup();
+            return Err(Error::SdkKmsClientError);
+        }
+
+        // Step 7: Create key_id string
+        let key_id_bytes = key_id.as_bytes();
+        let kms_key_id = aws_string_new_from_array(
+            resources.allocator,
+            key_id_bytes.as_ptr(),
+            key_id_bytes.len(),
+        );
+        if kms_key_id.is_null() {
+            resources.cleanup();
+            return Err(Error::SdkGenericError);
+        }
+
+        // Step 8: Prepare plaintext buffer
+        let plaintext_buf = aws_byte_buf {
+            len: plaintext.len(),
+            buffer: plaintext.as_ptr() as *mut u8,
+            capacity: plaintext.len(),
+            allocator: ptr::null_mut(),
+        };
+
+        // Step 9: Prepare ciphertext output buffer
+        let mut ciphertext_buf = aws_byte_buf {
+            len: 0,
+            buffer: ptr::null_mut(),
+            capacity: 0,
+            allocator: ptr::null_mut(),
+        };
+
+        // Step 10: Call KMS encrypt
+        let rc = aws_kms_encrypt_blocking(
+            resources.client,
+            kms_key_id,
+            &plaintext_buf,
+            &mut ciphertext_buf,
+        );
+
+        // Clean up key_id string
+        aws_string_destroy(kms_key_id);
+
+        if rc != 0 {
+            resources.cleanup();
+            return Err(Error::SdkGenericError);
+        }
+
+        // Step 11: Copy ciphertext to Vec<u8>
+        let result = if !ciphertext_buf.buffer.is_null() && ciphertext_buf.len > 0 {
+            slice::from_raw_parts(ciphertext_buf.buffer, ciphertext_buf.len).to_vec()
+        } else {
+            Vec::new()
+        };
+
+        // Step 12: Cleanup
+        resources.cleanup();
+
+        Ok(result)
+    }
+}
+
+#[cfg(target_env = "musl")]
+pub fn kms_encrypt_old(
     aws_region: &[u8],
     aws_key_id: &[u8],
     aws_secret_key: &[u8],
