@@ -102,7 +102,6 @@ pub struct WalletSignRequest {
     pub encrypted_private_key: String,
     pub message: String,
     pub nonce: String,
-    pub credential: Credential,
     pub region: String,
 }
 

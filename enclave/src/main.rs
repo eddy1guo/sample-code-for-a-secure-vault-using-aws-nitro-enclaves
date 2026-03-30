@@ -102,11 +102,12 @@ fn handle_client<S: Read + Write>(mut stream: S) -> Result<()> {
             Ok(EnclaveAction::Decrypt { inner }) => {
                 ("0".to_string().into_bytes(), handle_decrypt(inner)?)
             }
-            Ok(EnclaveAction::WalletSign { inner }) => {
-                (inner.nonce.clone().into_bytes(), handle_wallet_sign(inner)?)
-            }
+            Ok(EnclaveAction::WalletSign { inner }) => (
+                inner.request.nonce.clone().into_bytes(),
+                handle_wallet_sign(inner)?,
+            ),
             Ok(EnclaveAction::CreateWalletKey { inner }) => (
-                inner.nonce.clone().into_bytes(),
+                inner.request.nonce.clone().into_bytes(),
                 handle_create_wallet_key(inner)?,
             ),
             Err(err) => return send_error(stream, err),
