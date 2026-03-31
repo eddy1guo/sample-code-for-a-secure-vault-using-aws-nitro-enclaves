@@ -16,11 +16,6 @@ pub fn new_key_pair() -> (String, String) {
     (prikey, pubkey)
 }
 
-// let bytes: Vec<u8> = data.as_bytes().to_vec();
-// let prikey = (&prikey[8..]).decode_bs58()?.encode_hex();
-// let sig_hex = ed25519::sign(&prikey, &bytes)?;
-// Ok(format!("ed25519:{}", sig_hex.decode_hex()?.encode_bs58()))
-
 pub fn sign(prikey_hex: &str, data: &[u8]) -> Result<String> {
     let prikey_bytes = prikey_hex.decode_bs58()?;
     let secret_key = ed25519_dalek::Keypair::from_bytes(&prikey_bytes)?;

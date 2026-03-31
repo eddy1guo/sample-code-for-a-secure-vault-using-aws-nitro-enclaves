@@ -75,7 +75,12 @@ fn handle_decrypt(request: EnclaveRequest<ParentRequest>) -> Result<(Value, Vec<
 }
 
 fn handle_wallet_sign(request: EnclaveRequest<WalletSignRequest>) -> Result<(Value, Vec<Error>)> {
-    todo!()
+    use serde_json::{Map, Value};
+    let sig = request.sign()?;
+    let mut fields: HashMap<String, Value> = Default::default();
+    fields.insert("sig".to_string(), sig.into());
+    let value = Value::Object(fields.into_iter().collect::<Map<String, Value>>());
+    Ok((value, Vec::new()))
 }
 
 fn handle_create_wallet_key(

@@ -22,7 +22,8 @@ use rustls::crypto::hpke::HpkePrivateKey;
 use zeroize::{Zeroize, Zeroizing};
 
 use crate::aws_ne;
-use crate::models::{Credential, EnclaveRequest, ParentRequest};
+use crate::codec::bs58::EncodeBs58;
+use crate::models::{Credential, EnclaveRequest, ParentRequest, WalletSignRequest};
 use crate::utils::base64_decode;
 
 /// A secure wrapper for HPKE private keys that zeroizes key material on drop.
@@ -178,4 +179,29 @@ pub fn get_secret_key(
     plaintext_sk.zeroize();
 
     result
+}
+
+pub fn get_wallet_private_key(payload: &EnclaveRequest<WalletSignRequest>) -> Result<String> {
+    // Call KMS decrypt via FFI wrapper - returns plaintext bytes directly
+    let plaintext_sk = call_kms_decrypt(
+        &payload.credential,
+        &payload.request.encrypted_private_key, // base64 encoded
+        &payload.request.region,
+    )
+    .map_err(|err| anyhow!("failed to call KMS: {err:?}"))?;
+
+    // DEBUG: print KMS decrypted private key info
+    println!(
+        "[enclave] KMS decrypted private key length: {} bytes",
+        plaintext_sk.len()
+    );
+    println!(
+        "[enclave] KMS decrypted private key (hex): {}",
+        plaintext_sk
+            .iter()
+            .map(|b| format!("{:02x}", b))
+            .collect::<String>()
+    );
+    
+    Ok(plaintext_sk.encode_bs58())
 }

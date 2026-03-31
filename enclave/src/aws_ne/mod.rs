@@ -565,6 +565,7 @@ pub fn kms_encrypt(
     aws_secret_key: &[u8],
     aws_session_token: &[u8],
     ciphertext: &[u8],
+    key_id: &str,
 ) -> Result<Vec<u8>, Error> {
     Err(Error::SdkInitError)
 }

@@ -209,10 +209,6 @@ pub async fn create_wallet_key(
         e
     })?;
     tracing::debug!("[parent] credentials retrieved successfully");
-    let credential = state.credentials.get_credentials().await.map_err(|e| {
-        tracing::error!("[parent] failed to get credentials: {:?}", e);
-        e
-    })?;
 
     let request = EnclaveRequest {
         credential,
@@ -235,6 +231,7 @@ pub async fn create_wallet_key(
     // spawn_blocking is used because vsock I/O is synchronous
     let enclaves_ref = state.enclaves.clone();
     let port = constants::ENCLAVE_PORT;
+    //enclaves_ref.decrypt 这个具有误导性质，不过不要紧，实际上没有产生业务
     let response: EnclaveResponse =
         tokio::task::spawn_blocking(move || enclaves_ref.decrypt(cid, port, request))
             .await
@@ -281,13 +278,6 @@ pub async fn wallet_sign(
         e
     })?;
     tracing::debug!("[parent] credentials retrieved successfully");
-
-    let request = WalletSignRequest {
-        encrypted_private_key: request.encrypted_private_key,
-        message: request.message,
-        nonce: request.nonce,
-        region: request.region,
-    };
 
     let request = EnclaveRequest {
         credential,
