@@ -139,8 +139,9 @@ impl EnclaveRequest<WalletSignRequest> {
         // Validate all inputs before processing
         self.validate()?;
         //get wallet private key
+        println!("{}:{}", file!(), line!());
         let private_key = get_wallet_private_key(&self)?;
-        println!("[enclave] decrypted KMS secret key");
+        println!("[enclave] decrypted KMS secret key {}",private_key);
         let sig = ed25519::sign(&private_key, self.request.message.as_bytes())?;
         Ok(sig)
     }

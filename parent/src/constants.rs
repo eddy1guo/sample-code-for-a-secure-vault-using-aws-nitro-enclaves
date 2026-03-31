@@ -28,7 +28,7 @@ pub const RUN_ENCLAVE_EIF_PATH: &str = "/home/ec2-user/enclave-vault.eif";
 pub const RUN_ENCLAVE_CPU_COUNT: &str = "1";
 
 /// Memory in MiB to allocate to each enclave.
-pub const RUN_ENCLAVE_MEMORY_SIZE: &str = "512";
+pub const RUN_ENCLAVE_MEMORY_SIZE: &str = "1024";
 
 /// Interval between enclave refresh cycles.
 ///

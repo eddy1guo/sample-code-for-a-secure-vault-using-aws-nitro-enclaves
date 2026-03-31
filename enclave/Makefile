@@ -17,7 +17,7 @@ build-enclave:
 	nitro-cli build-enclave --docker-uri enclave-vault:latest --output-file enclave-vault.eif
 
 run-enclave:
-	nitro-cli run-enclave --cpu-count 2 --memory 512 --eif-path enclave-vault.eif --debug-mode
+	nitro-cli run-enclave --cpu-count 2 --memory 1024 --eif-path enclave-vault.eif --debug-mode
 
 create-private-key:
 	openssl ecparam -name secp384r1 -genkey -out nitro_vault_key.pem

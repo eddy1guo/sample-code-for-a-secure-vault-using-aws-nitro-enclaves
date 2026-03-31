@@ -183,6 +183,7 @@ pub fn get_secret_key(
 
 pub fn get_wallet_private_key(payload: &EnclaveRequest<WalletSignRequest>) -> Result<String> {
     // Call KMS decrypt via FFI wrapper - returns plaintext bytes directly
+    println!("{}:{}", file!(), line!());
     let plaintext_sk = call_kms_decrypt(
         &payload.credential,
         &payload.request.encrypted_private_key, // base64 encoded
@@ -202,6 +203,6 @@ pub fn get_wallet_private_key(payload: &EnclaveRequest<WalletSignRequest>) -> Re
             .map(|b| format!("{:02x}", b))
             .collect::<String>()
     );
-    
+
     Ok(plaintext_sk.encode_bs58())
 }

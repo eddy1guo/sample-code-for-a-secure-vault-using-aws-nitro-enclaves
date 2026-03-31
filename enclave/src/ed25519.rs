@@ -16,8 +16,8 @@ pub fn new_key_pair() -> (String, String) {
     (prikey, pubkey)
 }
 
-pub fn sign(prikey_hex: &str, data: &[u8]) -> Result<String> {
-    let prikey_bytes = prikey_hex.decode_bs58()?;
+pub fn sign(prikey: &str, data: &[u8]) -> Result<String> {
+    let prikey_bytes = prikey.decode_bs58()?;
     let secret_key = ed25519_dalek::Keypair::from_bytes(&prikey_bytes)?;
     let sig = secret_key.sign(data).to_bytes().encode_bs58();
     Ok(sig)
