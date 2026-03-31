@@ -64,7 +64,7 @@ pub fn get_attestation_document(user_data: &[u8], nonce: &[u8]) -> Result<Vec<u8
             //let cose_sign1 = parse_cose_sign1_view(&document)?;
             //verify_attestation(&cose_sign1)?;
             let doc_hex: String = hex::ToHex::encode_hex(&document);
-            println!("cose_hex: {}", doc_hex);
+            println!("cose_hex1: {}", doc_hex);
             Ok(document)
         }
         Response::Error(code) => Err(anyhow!("NSM attestation failed: {:?}", code)),
@@ -75,7 +75,7 @@ pub fn get_attestation_document(user_data: &[u8], nonce: &[u8]) -> Result<Vec<u8
 fn parse_cose_sign1(raw: &[u8]) -> Result<CoseSign1Doc> {
     let arr: Vec<serde_cbor::Value> = serde_cbor::from_slice(raw)?;
     for (i, v) in arr.iter().enumerate() {
-        println!("parse_cose_sign1_value: {} ----> {:?}", i, v);
+        println!("parse_cose_sign1_value1: {} ----> {:?}", i, v);
     }
     let to_bytes = |v: &serde_cbor::Value| match v {
         serde_cbor::Value::Bytes(b) => Ok(b.clone()),
