@@ -142,6 +142,14 @@ Decrypt
 - Vsock Proxy 是 enclave 访问 KMS 的唯一网络通道
 - NLB 做 TLS 透传，NGINX 在 EC2 上终止 TLS，保证 Lambda → EC2 之间的传输加密
 
+
+## TODO
+- 1、本地化调试的方案
+- 2、剔除`aws-lambda`和`api-gateway`模块
+- 3、剔除未使用代码
+- 4、将debug的编译调整重新会滚为release，并调整相应的memory参数
+- 5、将命令行操作的相关调整同步到配置文件中
+
 References:
 [1] AWS Nitro Enclaves Vault - Architecture - https://aws-samples.github.io/
 sample-code-for-a-secure-vault-using-aws-nitro-enclaves/architecture/
