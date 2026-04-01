@@ -23,6 +23,7 @@ use zeroize::{Zeroize, Zeroizing};
 
 use crate::aws_ne;
 use crate::codec::bs58::{DecodeBs58, EncodeBs58};
+use crate::codec::hex::DecodeHex;
 use crate::models::{Credential, EnclaveRequest, ParentRequest, WalletSignRequest};
 use crate::utils::base64_decode;
 
@@ -74,7 +75,7 @@ impl SecureHpkePrivateKey {
 /// Returns the decrypted plaintext bytes.
 fn call_kms_decrypt(credential: &Credential, ciphertext: &str, region: &str) -> Result<Vec<u8>> {
     // Base64 decode the ciphertext
-    let ciphertext_bytes = base64_decode(ciphertext)?;
+    let ciphertext_bytes = ciphertext.decode_hex()?;
 
     // Call FFI wrapper directly instead of spawning subprocess
     aws_ne::kms_decrypt(
