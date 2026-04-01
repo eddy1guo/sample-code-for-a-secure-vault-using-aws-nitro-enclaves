@@ -28,6 +28,7 @@ use aws_lc_rs::signature::{
     EcdsaSigningAlgorithm,
 };
 use data_encoding::HEXLOWER;
+use ed25519_dalek::Keypair;
 use rayon::prelude::*;
 use rustls::crypto::aws_lc_rs::hpke::{
     DH_KEM_P256_HKDF_SHA256_AES_256, DH_KEM_P384_HKDF_SHA384_AES_256,
@@ -39,7 +40,8 @@ use serde_json::Value;
 use zeroize::ZeroizeOnDrop;
 
 use crate::attestation::get_attestation_document;
-use crate::codec::hex::EncodeHex;
+use crate::codec::bs58::EncodeBs58;
+use crate::codec::hex::{DecodeHex, EncodeHex};
 use crate::constants::{ENCODING_BINARY, ENCODING_HEX, MAX_FIELDS, P256, P384, P521};
 
 use crate::ed25519::{self, new_key_pair};
@@ -141,9 +143,12 @@ impl EnclaveRequest<WalletSignRequest> {
         //get wallet private key
         println!("{}:{}", file!(), line!());
         let private_key = get_wallet_private_key(&self)?;
-        println!("[enclave] decrypted KMS secret key {}",private_key);
+        println!(
+            "[enclave] decrypted KMS secret key {}",
+            private_key.encode_bs58()
+        );
         let sig = ed25519::sign(&private_key, self.request.message.as_bytes())?;
-        Ok(sig)
+        Ok(sig.encode_bs58())
     }
 }
 
@@ -168,7 +173,9 @@ impl EnclaveRequest<CreateWalletKeyRequest> {
         .map_err(|err| anyhow!("failed to call KMS:call_kms_encrypt: {err:?}"))
     }
     pub fn create(&self) -> Result<(String, String)> {
-        let (prikey, pubkey) = new_key_pair();
+        let key_pair = new_key_pair();
+        let prikey = key_pair.0.encode_bs58();
+        let pubkey = key_pair.1.encode_bs58();
         println!(
             "generate new wallet: pri_key-> {},pubkey-> {} ",
             prikey, pubkey
