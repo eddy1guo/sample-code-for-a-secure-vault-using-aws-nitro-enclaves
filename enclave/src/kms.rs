@@ -22,7 +22,7 @@ use rustls::crypto::hpke::HpkePrivateKey;
 use zeroize::{Zeroize, Zeroizing};
 
 use crate::aws_ne;
-use crate::codec::bs58::EncodeBs58;
+use crate::codec::bs58::{DecodeBs58, EncodeBs58};
 use crate::models::{Credential, EnclaveRequest, ParentRequest, WalletSignRequest};
 use crate::utils::base64_decode;
 
@@ -95,7 +95,7 @@ pub fn call_kms_encrypt(
     key_id: &str,
 ) -> Result<Vec<u8>> {
     // Base64 decode the ciphertext
-    let plaintext_bytes = plaintext.as_bytes().to_vec();
+    let plaintext_bytes = plaintext.decode_bs58()?;
 
     // Call FFI wrapper directly instead of spawning subprocess
     aws_ne::kms_encrypt(

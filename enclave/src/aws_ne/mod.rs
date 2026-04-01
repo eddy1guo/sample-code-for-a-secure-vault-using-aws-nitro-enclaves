@@ -458,15 +458,6 @@ pub fn kms_encrypt(
             allocator: ptr::null_mut(),
         };
         println!("line {}", line!());
-
-        // let rc = aws_kms_decrypt_blocking(
-        //     resources.client,
-        //     ptr::null_mut(), // key_id (use default from ciphertext)
-        //     ptr::null_mut(), // encryption_algorithm (use default)
-        //     &ciphertext_buf,
-        //     &mut plaintext_buf,
-        // );
-
         // Step 10: Call KMS encrypt
         let rc = aws_kms_encrypt_blocking(
             resources.client,
