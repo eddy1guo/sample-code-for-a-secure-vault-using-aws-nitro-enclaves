@@ -39,7 +39,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use zeroize::ZeroizeOnDrop;
 
-use crate::attestation::get_attestation_document;
+use crate::attestation::aws::get_attestation_document;
 use crate::codec::bs58::EncodeBs58;
 use crate::codec::hex::{DecodeHex, EncodeHex};
 use crate::constants::{ENCODING_BINARY, ENCODING_HEX, MAX_FIELDS, P256, P384, P521};

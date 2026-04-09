@@ -8,7 +8,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::thread;
 
 use anyhow::{Error, Result, anyhow};
-use enclave_vault::attestation::get_attestation_document;
+use enclave_vault::attestation::aws::get_attestation_document;
 use enclave_vault::models::{
     CreateWalletKeyRequest, EnclaveAction, ParentRequest, WalletSignRequest,
 };

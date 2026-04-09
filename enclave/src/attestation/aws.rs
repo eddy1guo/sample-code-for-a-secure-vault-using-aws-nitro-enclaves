@@ -294,6 +294,7 @@ IwLz3/Y=
     }
 
     #[test]
+    #[ignore = "requires a live Nitro Enclave NSM environment"]
     fn test_gen_doc_and_verify() -> Result<()> {
         todo!()
     }

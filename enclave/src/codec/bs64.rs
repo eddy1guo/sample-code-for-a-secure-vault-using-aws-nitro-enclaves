@@ -1,7 +1,7 @@
 use std::borrow::Borrow;
 
 pub use anyhow::Result;
-pub use base64::{prelude::BASE64_STANDARD, Engine};
+pub use base64::{Engine, prelude::BASE64_STANDARD};
 
 pub fn encode<I: AsRef<[u8]>>(input: &I) -> String {
     BASE64_STANDARD.encode(input.as_ref())
