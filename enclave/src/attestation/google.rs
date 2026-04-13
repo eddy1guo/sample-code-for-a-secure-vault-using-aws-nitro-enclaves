@@ -678,14 +678,20 @@ mod tests {
     }
 
     #[test]
-    fn test_verify_attestation_accepts_xiaomi_real_world_sample() -> Result<()> {
+    fn test_all_platform_verify_attestation_accepts_real_world_sample() -> Result<()> {
+        //success
+        verify_real_world_sample("testdata/android_google_real_world_attestation_object.txt")?;
         verify_real_world_sample("testdata/android_xiaomi_real_world_attestation_object.txt")?;
-        Ok(())
-    }
-
-    #[test]
-    fn test_verify_attestation_accepts_real_world_sample() -> Result<()> {
-        verify_real_world_sample("testdata/android_real_world_attestation_object.txt")?;
+        verify_real_world_sample("testdata/android_vivo_real_world_attestation_object.txt")?;
+        //failed
+        assert!(
+            verify_real_world_sample("testdata/android_samsung_real_world_attestation_object.txt")
+                .is_err()
+        );
+        assert!(
+            verify_real_world_sample("testdata/android_hongmeng_real_world_attestation_object.txt")
+                .is_err()
+        );
         Ok(())
     }
 
