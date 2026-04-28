@@ -15,16 +15,21 @@
 //! - The KMS key policy must allow the enclave's PCR values to decrypt
 //! - HPKE private keys are wrapped in [`SecureHpkePrivateKey`] which zeroizes on drop
 
-use anyhow::{Result, anyhow};
+use anyhow::{Result, anyhow, bail};
 use aws_lc_rs::encoding::AsBigEndian;
 use aws_lc_rs::signature::{EcdsaKeyPair, EcdsaSigningAlgorithm};
 use rustls::crypto::hpke::HpkePrivateKey;
 use zeroize::{Zeroize, Zeroizing};
 
+use crate::attestation::common::{TeeClient, Usage, WalletKeyBond};
 use crate::aws_ne;
 use crate::codec::bs58::{DecodeBs58, EncodeBs58};
+use crate::codec::bs64::EncodeBs64;
 use crate::codec::hex::DecodeHex;
-use crate::models::{Credential, EnclaveRequest, ParentRequest, WalletSignRequest};
+use crate::codec::json::JsonDeserialize;
+use crate::models::{
+    CreateWalletKeyRequest, Credential, EnclaveRequest, ParentRequest, WalletSignRequest,
+};
 use crate::utils::base64_decode;
 
 /// A secure wrapper for HPKE private keys that zeroizes key material on drop.
@@ -96,7 +101,7 @@ pub fn call_kms_encrypt(
     key_id: &str,
 ) -> Result<Vec<u8>> {
     // Base64 decode the ciphertext
-    let plaintext_bytes = plaintext.decode_bs58()?;
+    let plaintext_bytes = plaintext.as_bytes();
 
     // Call FFI wrapper directly instead of spawning subprocess
     aws_ne::kms_encrypt(
@@ -104,7 +109,7 @@ pub fn call_kms_encrypt(
         credential.access_key_id.as_bytes(),
         credential.secret_access_key.as_bytes(),
         credential.session_token.as_bytes(),
-        &plaintext_bytes,
+        plaintext_bytes,
         &key_id,
     )
     .map_err(|e| anyhow!("KMS decrypt failed: {}", e))
@@ -187,7 +192,7 @@ pub fn get_wallet_private_key(payload: &EnclaveRequest<WalletSignRequest>) -> Re
     println!("{}:{}", file!(), line!());
     let plaintext_sk = call_kms_decrypt(
         &payload.credential,
-        &payload.request.encrypted_private_key, // base64 encoded
+        &payload.request.encrypted_payload, // base64 encoded
         &payload.request.region,
     )
     .map_err(|err| anyhow!("failed to call KMS: {err:?}"))?;
@@ -206,4 +211,48 @@ pub fn get_wallet_private_key(payload: &EnclaveRequest<WalletSignRequest>) -> Re
     );
 
     Ok(plaintext_sk)
+}
+
+//解密在设备注册时候的密文结果获取tee的密钥公钥明文
+pub fn get_tee_client(payload: &EnclaveRequest<CreateWalletKeyRequest>) -> Result<TeeClient> {
+    println!("{}:{}", file!(), line!());
+    let plaintext = call_kms_decrypt(
+        &payload.credential,
+        &payload.request.encrypted_client_data,
+        &payload.request.region,
+    )
+    .map_err(|err| anyhow!("failed to call KMS: {err:?}"))?;
+
+    let client: TeeClient = serde_json::from_slice(&plaintext)?;
+    if client.usage != Usage::TeeClientRegister {
+        bail!("Usage not matched!");
+    }
+    println!(
+        "[enclave:plaintext_pubkey] KMS decrypted private key length: {:?}",
+        client
+    );
+
+    Ok(client)
+}
+
+//解密在设备注册时候的密文结果获取tee的密钥公钥明文
+pub fn get_wallet_key_bond(payload: &EnclaveRequest<WalletSignRequest>) -> Result<WalletKeyBond> {
+    println!("{}:{}", file!(), line!());
+    let plaintext = call_kms_decrypt(
+        &payload.credential,
+        &payload.request.encrypted_payload,
+        &payload.request.region,
+    )
+    .map_err(|err| anyhow!("failed to call KMS: {err:?}"))?;
+
+    let client: WalletKeyBond = serde_json::from_slice(&plaintext)?;
+    if client.usage != Usage::CreatedWalletKey {
+        bail!("Usage is {}.expect CreatedWalletKey", client.usage);
+    }
+    println!(
+        "[enclave:plaintext_pubkey] KMS decrypted private key length: {:?}",
+        client
+    );
+
+    Ok(client)
 }

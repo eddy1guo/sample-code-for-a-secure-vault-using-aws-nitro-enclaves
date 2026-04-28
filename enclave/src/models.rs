@@ -39,14 +39,20 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use zeroize::ZeroizeOnDrop;
 
-use crate::attestation::aws::get_attestation_document;
-use crate::codec::bs58::EncodeBs58;
+use crate::attestation::aws::{get_attestation_document, is_nitro_debug_mode};
+use crate::attestation::common::{Platform, TeeClient, Usage, WalletKeyBond};
+use crate::attestation::{Attestation, verify_attested_signature};
+use crate::codec::bs58::{DecodeBs58, EncodeBs58};
 use crate::codec::hex::{DecodeHex, EncodeHex};
+use crate::codec::json::JsonSerialize;
 use crate::constants::{ENCODING_BINARY, ENCODING_HEX, MAX_FIELDS, P256, P384, P521};
 
 use crate::ed25519::{self, new_key_pair};
 use crate::hpke::decrypt_value;
-use crate::kms::{SecureHpkePrivateKey, call_kms_encrypt, get_secret_key, get_wallet_private_key};
+use crate::kms::{
+    SecureHpkePrivateKey, call_kms_encrypt, get_secret_key, get_tee_client, get_wallet_key_bond,
+    get_wallet_private_key,
+};
 use crate::utils::base64_decode;
 
 /// AWS credentials for KMS access.
@@ -100,8 +106,10 @@ pub struct EnclaveRequest<T> {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WalletSignRequest {
-    /// HPKE encrypted private key, hex encoded.
-    pub encrypted_private_key: String,
+    /// encrypted data,contain client pubkey and identity key  on chain
+    pub encrypted_payload: String,
+    pub signature: String,
+    //txid
     pub message: String,
     pub nonce: String,
     pub region: String,
@@ -110,8 +118,12 @@ pub struct WalletSignRequest {
 impl EnclaveRequest<WalletSignRequest> {
     pub fn validate(&self) -> Result<()> {
         // Validate vault_id is non-empty
-        if self.request.encrypted_private_key.is_empty() {
+        if self.request.encrypted_payload.is_empty() {
             bail!("vault_id cannot be empty");
+        }
+
+        if !is_nitro_debug_mode()? && self.request.signature.is_empty() {
+            bail!("in product mode,signature can't be none");
         }
 
         // Validate region is non-empty and contains only valid characters
@@ -142,11 +154,21 @@ impl EnclaveRequest<WalletSignRequest> {
         self.validate()?;
         //get wallet private key
         println!("{}:{}", file!(), line!());
-        let private_key = get_wallet_private_key(&self)?;
+        //1) decrypted tee pubkey  and wallet prikey
+        let wallet_bond = get_wallet_key_bond(&self)?;
+
+        //2) check tee client signature by tee pubkey
+        let tee_client = wallet_bond.clone().into_tee_client();
+        if !is_nitro_debug_mode()? {
+            verify_attested_signature(tee_client, &self.request.nonce, &self.request.signature)?;
+        }
+        let wallet_prikey_bytes = wallet_bond.wallet_prikey.decode_bs58()?;
         println!(
             "[enclave] decrypted KMS secret key {}",
-            private_key.encode_bs58()
+            wallet_prikey_bytes.encode_bs58()
         );
+        let private_key = wallet_prikey_bytes[..=31].to_vec();
+        //3) sign tx_hash  by wallet prikey
         let sig = ed25519::sign(&private_key, self.request.message.as_bytes())?;
         Ok(sig.encode_bs58())
     }
@@ -154,6 +176,8 @@ impl EnclaveRequest<WalletSignRequest> {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CreateWalletKeyRequest {
+    pub encrypted_client_data: String,
+    pub sig: String,
     pub nonce: String,
     pub key_id: String,
     pub region: String,
@@ -173,14 +197,69 @@ impl EnclaveRequest<CreateWalletKeyRequest> {
         .map_err(|err| anyhow!("failed to call KMS:call_kms_encrypt: {err:?}"))
     }
     pub fn create(&self) -> Result<(String, String)> {
+        //先验证tee密钥的签名
+        let client = get_tee_client(&self)?;
+        if !is_nitro_debug_mode()? {
+            verify_attested_signature(client.clone(), &self.request.nonce, &self.request.sig)?;
+        }
         let key_pair = new_key_pair();
-        let prikey = key_pair.0.encode_bs58();
-        let pubkey = key_pair.1.encode_bs58();
+        let wallet_prikey = key_pair.0.encode_bs58();
+        let wallet_pubkey = key_pair.1.encode_bs58();
+        let plaint_text = WalletKeyBond {
+            client_platform: client.platform,
+            client_pubkey: client.pubkey,
+            wallet_prikey: wallet_prikey.clone(),
+            usage: Usage::CreatedWalletKey,
+        }
+        .serialize_json()?;
         println!(
             "generate new wallet: pri_key-> {},pubkey-> {} ",
-            prikey, pubkey
+            wallet_prikey, wallet_pubkey
         );
-        Ok((self.encrypt(&prikey)?.encode_hex(), pubkey))
+        Ok((self.encrypt(&plaint_text)?.encode_hex(), wallet_pubkey))
+    }
+}
+
+//tee设备的认证业务
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TeeClientRegisterRequest {
+    pub attestation_doc: String,
+    pub platform: Platform,
+    pub nonce: String,
+    pub key_id: String,
+    pub region: String,
+}
+impl EnclaveRequest<TeeClientRegisterRequest> {
+    pub fn validate(&self) -> Result<()> {
+        todo!()
+    }
+
+    pub fn attestation(&self) -> Result<Attestation> {
+        (
+            self.request.attestation_doc.clone(),
+            self.request.platform.clone(),
+        )
+            .try_into()
+    }
+    //fix algorithm with ECDSA_P256_SHA256_ASN1_SIGNING
+    pub fn encrypt_tee_client(&self) -> Result<String> {
+        let attestation = self.attestation()?;
+        attestation.verify()?;
+        let pubkey = attestation.pubkey()?;
+        let tee_client = TeeClient {
+            platform: self.request.platform.clone(),
+            pubkey,
+            usage: Usage::TeeClientRegister,
+        }
+        .serialize_json()?;
+        call_kms_encrypt(
+            &self.credential,
+            &tee_client,
+            &self.request.region,
+            &self.request.key_id,
+        )
+        .map(|x| x.encode_hex())
+        .map_err(|err| anyhow!("failed to call KMS:call_kms_encrypt: {err:?}"))
     }
 }
 
@@ -201,6 +280,11 @@ pub enum EnclaveAction {
     CreateWalletKey {
         #[serde(flatten)]
         inner: EnclaveRequest<CreateWalletKeyRequest>,
+    },
+    #[serde(rename = "tee_client_register")]
+    TeeClientRegister {
+        #[serde(flatten)]
+        inner: EnclaveRequest<TeeClientRegisterRequest>,
     },
 }
 

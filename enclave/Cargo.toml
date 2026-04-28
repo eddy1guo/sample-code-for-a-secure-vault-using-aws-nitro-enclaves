@@ -58,7 +58,8 @@ aws-config = { version = "=1.8.12", default-features = false, features = [
     "default-https-client",
 ] }
 tokio = { version = "1.41.0", features = ["full"] }
-
+strum = "=0.26.1"
+strum_macros = "=0.26.1"
 
 ## aws-nitro-enclaves-nsm-api = { version = "0.4", default-features = false }
 aws-nitro-enclaves-nsm-api = { version = "0.4", default-features = false, features = [

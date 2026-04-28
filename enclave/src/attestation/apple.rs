@@ -1,16 +1,36 @@
 use crate::attestation::common::{
     certificate_extension_value, load_pem_certificates, parse_der, sha256_bytes, verify_cert_chain,
 };
+use crate::codec::bs64::DecodeBs64;
 use anyhow::{Result, anyhow, bail};
 use base64::Engine as _;
 use base64::engine::general_purpose::{STANDARD, STANDARD_NO_PAD, URL_SAFE, URL_SAFE_NO_PAD};
 use openssl::bn::BigNumContext;
 use openssl::ec::PointConversionForm;
+use openssl::ecdsa::EcdsaSig;
+use openssl::hash::MessageDigest;
 use openssl::pkey::{PKey, Public};
+use openssl::sign::Verifier as OpenSslVerifier;
 use openssl::x509::X509;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_bytes::ByteBuf;
 use serde_cbor::Value;
+
+const APPLE_APP_ATTEST_ROOT_CA_PEM: &str = "-----BEGIN CERTIFICATE-----
+MIICITCCAaegAwIBAgIQC/O+DvHN0uD7jG5yH2IXmDAKBggqhkjOPQQDAzBSMSYw
+JAYDVQQDDB1BcHBsZSBBcHAgQXR0ZXN0YXRpb24gUm9vdCBDQTETMBEGA1UECgwK
+QXBwbGUgSW5jLjETMBEGA1UECAwKQ2FsaWZvcm5pYTAeFw0yMDAzMTgxODMyNTNa
+Fw00NTAzMTUwMDAwMDBaMFIxJjAkBgNVBAMMHUFwcGxlIEFwcCBBdHRlc3RhdGlv
+biBSb290IENBMRMwEQYDVQQKDApBcHBsZSBJbmMuMRMwEQYDVQQIDApDYWxpZm9y
+bmlhMHYwEAYHKoZIzj0CAQYFK4EEACIDYgAERTHhmLW07ATaFQIEVwTtT4dyctdh
+NbJhFs/Ii2FdCgAHGbpphY3+d8qjuDngIN3WVhQUBHAoMeQ/cLiP1sOUtgjqK9au
+Yen1mMEvRq9Sk3Jm5X8U62H+xTD3FE9TgS41o0IwQDAPBgNVHRMBAf8EBTADAQH/
+MB0GA1UdDgQWBBSskRBTM72+aEH/pwyp5frq5eWKoTAOBgNVHQ8BAf8EBAMCAQYw
+CgYIKoZIzj0EAwMDaAAwZQIwQgFGnByvsiVbpTKwSga0kP0e8EeDS4+sQmTvb7vn
+53O5+FRXgeLhpJ06ysC5PrOyAjEAp5U4xDgEgllF7En3VcE3iexZZtKeYnpqtijV
+oyFraWVIyd/dganmrduC1bmTBGwD
+-----END CERTIFICATE-----";
+const REAL_SAMPLE_APP_ID: &str = "F632MRRB47.com.chainlessios.app";
 
 const APPLE_APP_ATTEST_FORMAT: &str = "apple-appattest";
 const APPLE_NONCE_EXTENSION_OID: &str = "1.2.840.113635.100.8.2";
@@ -22,21 +42,35 @@ const APP_ATTEST_PRODUCTION_AAGUID: [u8; 16] = [
 
 #[derive(Debug, Deserialize)]
 struct AppAttestationObject {
+    /// App Attest 对象格式标识，真实值应为 `apple-appattest`。
     fmt: String,
+    /// 证明语句，包含证书链 `x5c` 和可选的 fraud receipt。
     #[serde(rename = "attStmt")]
     att_stmt: AppAttestationStatement,
+    /// WebAuthn 风格的 authenticator data，里面包含 rpIdHash、计数器、credentialId、公钥等。
     #[serde(rename = "authData")]
     auth_data: ByteBuf,
 }
 
 #[derive(Debug, Deserialize)]
+struct AppAssertionObject {
+    /// 断言签名，ASN.1 DER / X9.62 格式。
+    signature: ByteBuf,
+    /// 简化版 authenticator data，仅包含前 37 字节基础字段。
+    #[serde(rename = "authenticatorData")]
+    authenticator_data: ByteBuf,
+}
+
+#[derive(Debug, Deserialize)]
 struct AppAttestationStatement {
+    /// 证明证书链，通常第一个是叶子证书，后面是中间证书。
     x5c: Vec<ByteBuf>,
+    /// Apple 返回的可选 fraud receipt，可用于后续风险校验。
     #[serde(default)]
     receipt: Option<ByteBuf>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 pub enum AppAttestEnvironment {
     Development,
     Production,
@@ -44,22 +78,90 @@ pub enum AppAttestEnvironment {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct VerifiedAttestation {
+    /// 已解码的 keyId，通常等于 attested 公钥的哈希。
     pub key_id: Vec<u8>,
+    /// App Attest 计数器。首次 attestation 时应为 0，后续 assertion 会递增。
     pub counter: u32,
+    /// 当前证明对应的环境，区分 development / production。
     pub environment: AppAttestEnvironment,
+    /// 可选的 Apple fraud receipt 原始字节。
     pub receipt: Option<Vec<u8>>,
+    /// 叶子证书中的公钥，SPKI DER 编码，适合服务端存储和验签。
     pub public_key_spki_der: Vec<u8>,
+    /// 未压缩 EC 公钥，格式为 `04 || X || Y`。
     pub public_key_raw: Vec<u8>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct VerifiedAssertion {
+    /// assertion 中的计数器，应该严格递增。
+    pub counter: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct ParsedAttestationObjectView {
+    /// 顶层格式字段，正常应为 `apple-appattest`。
+    pub fmt: String,
+    /// `x5c` 证书链数量。
+    pub certificate_count: usize,
+    /// 是否带有 fraud receipt。
+    pub receipt_present: bool,
+    /// `authData` 的完整十六进制表示，便于调试原始内容。
+    pub auth_data_hex: String,
+    /// `rpIdHash = SHA256(app_id)`，用于绑定 Team ID + Bundle ID。
+    pub rp_id_hash_hex: String,
+    /// `authData` flags 字节，App Attest 一般至少包含 attested credential data 标志。
+    pub flags: u8,
+    /// 计数器，首次 attestation 为 0。
+    pub counter: u32,
+    /// 从 AAGUID 推断出的环境。
+    pub environment: AppAttestEnvironment,
+    /// credentialId 的十六进制形式，通常与你拿到的 keyId 解码值一致。
+    pub credential_id_hex: String,
+    /// credentialId 的 Base64 形式，便于和客户端的 `keyId` 直接比对。
+    pub credential_id_base64: String,
+    /// `authData` 中携带的原始公钥，未压缩点格式 `04 || X || Y`。
+    pub public_key_raw_hex: String,
+    /// 叶子证书公钥的 SPKI DER 十六进制表示。
+    pub public_key_spki_der_hex: String,
+    /// 叶子证书公钥的 SPKI DER Base64 表示，便于服务端保存。
+    pub public_key_spki_der_base64: String,
+    /// `authData` 里的公钥是否与叶子证书公钥一致。
+    pub public_key_matches_certificate: bool,
+    /// 对 raw 公钥做 SHA-256 后得到的十六进制值，通常等于 keyId。
+    pub key_id_from_public_key_raw_hex: String,
+    /// 对 raw 公钥做 SHA-256 后得到的 Base64 值，通常等于客户端 `keyId`。
+    pub key_id_from_public_key_raw_base64: String,
+    /// 对 SPKI DER 公钥做 SHA-256 后得到的十六进制值。
+    pub key_id_from_public_key_spki_hex: String,
+    /// 对 SPKI DER 公钥做 SHA-256 后得到的 Base64 值。
+    pub key_id_from_public_key_spki_base64: String,
 }
 
 #[derive(Debug)]
 struct ParsedAuthenticatorData {
+    /// `SHA256(app_id)`，用于校验当前证明绑定到了哪个 App ID。
     rp_id_hash: [u8; 32],
+    /// WebAuthn flags 字节。
     flags: u8,
+    /// 计数器。
     counter: u32,
+    /// AAGUID，用于区分 development / production。
     aaguid: [u8; 16],
+    /// 凭证 ID，即 credentialId。
     credential_id: Vec<u8>,
+    /// `authData` 里携带的 credential public key，已转换成未压缩 EC 点格式。
     credential_public_key_raw: Vec<u8>,
+}
+
+#[derive(Debug)]
+struct ParsedAssertionAuthenticatorData {
+    /// `SHA256(app_id)`，用于校验 assertion 绑定的 App ID。
+    rp_id_hash: [u8; 32],
+    /// WebAuthn flags 字节。
+    flags: u8,
+    /// assertion 计数器。
+    counter: u32,
 }
 
 /// Verify an iOS App Attest attestation object.
@@ -106,11 +208,7 @@ pub fn verify_attestation(
         bail!("App Attest counter must start at zero");
     }
 
-    let environment = match auth_data.aaguid {
-        APP_ATTEST_DEVELOPMENT_AAGUID => AppAttestEnvironment::Development,
-        APP_ATTEST_PRODUCTION_AAGUID => AppAttestEnvironment::Production,
-        other => bail!("unexpected App Attest AAGUID {}", hex::encode(other)),
-    };
+    let environment = parse_environment(&auth_data.aaguid)?;
 
     let cert_public_key = leaf.public_key()?;
     let public_key_raw = public_key_raw_bytes(&cert_public_key)?;
@@ -159,6 +257,150 @@ pub fn verify_attestation(
     })
 }
 
+pub fn parse_attestation_object_base64(
+    attestation_object_base64: &str,
+) -> Result<ParsedAttestationObjectView> {
+    let attestation_object = STANDARD
+        .decode(attestation_object_base64)
+        .map_err(|err| anyhow!("failed to base64 decode App Attest object: {err}"))?;
+    let res = parse_attestation_object_bytes(&attestation_object);
+    println!("{:#?}", res);
+    res
+}
+
+pub fn parse_attestation_object_bytes(raw: &[u8]) -> Result<ParsedAttestationObjectView> {
+    let object = parse_attestation_object(raw)?;
+    if object.fmt != APPLE_APP_ATTEST_FORMAT {
+        bail!("unexpected App Attest format {}", object.fmt);
+    }
+    if object.att_stmt.x5c.is_empty() {
+        bail!("App Attest attestation statement is missing x5c certificates");
+    }
+
+    let auth_data = parse_authenticator_data(object.auth_data.as_slice())?;
+    let environment = parse_environment(&auth_data.aaguid)?;
+
+    let leaf = X509::from_der(&object.att_stmt.x5c[0])?;
+    let cert_public_key = leaf.public_key()?;
+    let public_key_raw = public_key_raw_bytes(&cert_public_key)?;
+    let public_key_spki_der = cert_public_key.public_key_to_der()?;
+    let key_id_from_public_key_raw = sha256_bytes(&public_key_raw);
+    let key_id_from_public_key_spki = sha256_bytes(&public_key_spki_der);
+
+    Ok(ParsedAttestationObjectView {
+        fmt: object.fmt,
+        certificate_count: object.att_stmt.x5c.len(),
+        receipt_present: object.att_stmt.receipt.is_some(),
+        auth_data_hex: hex::encode(object.auth_data.as_slice()),
+        rp_id_hash_hex: hex::encode(auth_data.rp_id_hash),
+        flags: auth_data.flags,
+        counter: auth_data.counter,
+        environment,
+        credential_id_hex: hex::encode(&auth_data.credential_id),
+        credential_id_base64: STANDARD.encode(&auth_data.credential_id),
+        public_key_raw_hex: hex::encode(&auth_data.credential_public_key_raw),
+        public_key_spki_der_hex: hex::encode(&public_key_spki_der),
+        public_key_spki_der_base64: STANDARD.encode(&public_key_spki_der),
+        public_key_matches_certificate: auth_data.credential_public_key_raw == public_key_raw,
+        key_id_from_public_key_raw_hex: hex::encode(&key_id_from_public_key_raw),
+        key_id_from_public_key_raw_base64: STANDARD.encode(&key_id_from_public_key_raw),
+        key_id_from_public_key_spki_hex: hex::encode(&key_id_from_public_key_spki),
+        key_id_from_public_key_spki_base64: STANDARD.encode(&key_id_from_public_key_spki),
+    })
+}
+
+pub fn extract_attested_public_key_base64(attestation_object_base64: &str) -> Result<String> {
+    Ok(parse_attestation_object_base64(attestation_object_base64)?.public_key_spki_der_base64)
+}
+
+/// Verify an iOS App Attest assertion object.
+///
+/// `public_key_spki_der` should come from a previously verified attestation object.
+/// `app_id` should be `{team_id}.{bundle_id}`.
+/// `client_data_hash` should be the SHA-256 hash supplied to `generateAssertion`.
+/// `previous_counter` should be the last accepted assertion counter for this key, if any.
+pub fn verify_assertion(
+    assertion_object: &[u8],
+    public_key_spki_der: &[u8],
+    app_id: &str,
+    client_data_hash: &[u8],
+    previous_counter: Option<u32>,
+) -> Result<VerifiedAssertion> {
+    let assertion = parse_assertion_object(assertion_object)?;
+    let auth_data = parse_assertion_authenticator_data(assertion.authenticator_data.as_slice())?;
+    let expected_rp_id_hash = sha256_bytes(app_id.as_bytes());
+    if auth_data.rp_id_hash.as_slice() != expected_rp_id_hash.as_slice() {
+        bail!("App Attest assertion app identity hash mismatch");
+    }
+
+    match previous_counter {
+        Some(previous) if auth_data.counter <= previous => {
+            bail!("App Attest assertion counter did not increase");
+        }
+        None if auth_data.counter == 0 => {
+            bail!("App Attest assertion counter must be greater than zero");
+        }
+        _ => {}
+    }
+
+    let public_key = PKey::public_key_from_der(public_key_spki_der)?;
+    let mut nonce_input =
+        Vec::with_capacity(assertion.authenticator_data.len() + client_data_hash.len());
+    nonce_input.extend_from_slice(assertion.authenticator_data.as_slice());
+    nonce_input.extend_from_slice(client_data_hash);
+    let nonce = sha256_bytes(&nonce_input);
+
+    let signature = EcdsaSig::from_der(assertion.signature.as_slice())?;
+    let ec_public_key = public_key.ec_key()?;
+    if !signature.verify(&nonce, &ec_public_key)? {
+        bail!("App Attest assertion signature verification failed");
+    }
+
+    Ok(VerifiedAssertion {
+        counter: auth_data.counter,
+    })
+}
+
+pub fn verify_assertion_base64(
+    assertion_object_base64: &str,
+    public_key_spki_der_base64: &str,
+    app_id: &str,
+    client_data_hash_base64: &str,
+    previous_counter: Option<u32>,
+) -> Result<VerifiedAssertion> {
+    let assertion_object = STANDARD
+        .decode(assertion_object_base64)
+        .map_err(|err| anyhow!("failed to base64 decode App Attest assertion object: {err}"))?;
+    let public_key_spki_der = STANDARD
+        .decode(public_key_spki_der_base64)
+        .map_err(|err| anyhow!("failed to base64 decode App Attest assertion public key: {err}"))?;
+    let client_data_hash = STANDARD.decode(client_data_hash_base64).map_err(|err| {
+        anyhow!("failed to base64 decode App Attest assertion clientDataHash: {err}")
+    })?;
+
+    verify_assertion(
+        &assertion_object,
+        &public_key_spki_der,
+        app_id,
+        &client_data_hash,
+        previous_counter,
+    )
+}
+
+/// 使用 App Attest 证明出的 P-256 公钥验证 ECDSA-SHA256 签名。
+///
+/// `signature_der` 应为 ASN.1 DER / X9.62 格式。
+pub fn verify_attested_signature(
+    public_key_spki_der: &[u8],
+    message: &[u8],
+    signature_der: &[u8],
+) -> Result<bool> {
+    let public_key = PKey::public_key_from_der(public_key_spki_der)?;
+    let mut verifier = OpenSslVerifier::new(MessageDigest::sha256(), &public_key)?;
+    verifier.update(message)?;
+    Ok(verifier.verify(signature_der)?)
+}
+
 fn parse_attestation_object(raw: &[u8]) -> Result<AppAttestationObject> {
     let value: Value = serde_cbor::from_slice(raw)?;
     let map = cbor_map(value, "App Attest attestation object")?;
@@ -173,6 +415,24 @@ fn parse_attestation_object(raw: &[u8]) -> Result<AppAttestationObject> {
             &map,
             "authData",
             "App Attest attestation object",
+        )?),
+    })
+}
+
+fn parse_assertion_object(raw: &[u8]) -> Result<AppAssertionObject> {
+    let value: Value = serde_cbor::from_slice(raw)?;
+    let map = cbor_map(value, "App Attest assertion object")?;
+
+    Ok(AppAssertionObject {
+        signature: ByteBuf::from(bytes_field_by_name(
+            &map,
+            "signature",
+            "App Attest assertion object",
+        )?),
+        authenticator_data: ByteBuf::from(bytes_field_by_name(
+            &map,
+            "authenticatorData",
+            "App Attest assertion object",
         )?),
     })
 }
@@ -285,6 +545,23 @@ fn parse_authenticator_data(raw: &[u8]) -> Result<ParsedAuthenticatorData> {
     })
 }
 
+fn parse_assertion_authenticator_data(raw: &[u8]) -> Result<ParsedAssertionAuthenticatorData> {
+    if raw.len() != 37 {
+        bail!("App Attest assertion authenticatorData must be exactly 37 bytes");
+    }
+
+    let mut rp_id_hash = [0_u8; 32];
+    rp_id_hash.copy_from_slice(&raw[..32]);
+    let flags = raw[32];
+    let counter = u32::from_be_bytes(raw[33..37].try_into()?);
+
+    Ok(ParsedAssertionAuthenticatorData {
+        rp_id_hash,
+        flags,
+        counter,
+    })
+}
+
 fn parse_nonce_extension(raw: &[u8]) -> Result<Vec<u8>> {
     let (sequence, rest) = parse_der(raw)?;
     if !rest.is_empty() {
@@ -299,6 +576,14 @@ fn parse_nonce_extension(raw: &[u8]) -> Result<Vec<u8>> {
     let tagged = children[0].expect_context_specific(1)?;
     let nonce = tagged.explicit()?.octet_string()?;
     Ok(nonce.to_vec())
+}
+
+fn parse_environment(aaguid: &[u8; 16]) -> Result<AppAttestEnvironment> {
+    match *aaguid {
+        APP_ATTEST_DEVELOPMENT_AAGUID => Ok(AppAttestEnvironment::Development),
+        APP_ATTEST_PRODUCTION_AAGUID => Ok(AppAttestEnvironment::Production),
+        other => bail!("unexpected App Attest AAGUID {}", hex::encode(other)),
+    }
 }
 
 fn cose_p256_public_key(value: &Value) -> Result<Vec<u8>> {
@@ -369,6 +654,67 @@ fn public_key_raw_bytes(public_key: &PKey<Public>) -> Result<Vec<u8>> {
     Ok(point.to_bytes(group, PointConversionForm::UNCOMPRESSED, &mut ctx)?)
 }
 
+#[derive(Deserialize)]
+pub struct RealWorldSample {
+    /// 客户端 `generateKey()` 返回的 keyId。
+    #[serde(rename = "keyId")]
+    key_id: String,
+    /// 业务层自定义 clientData JSON 字符串。
+    #[serde(rename = "clientDataUtf8")]
+    client_data_utf8: String,
+    /// `SHA256(clientDataUtf8)` 的 Base64。
+    #[serde(rename = "clientDataHashBase64")]
+    client_data_hash_base64: String,
+    /// Apple 返回的 attestation object，CBOR 二进制后再 Base64。
+    #[serde(rename = "attestationObjectBase64")]
+    attestation_object_base64: String,
+}
+
+impl RealWorldSample {
+    pub fn pubkey(&self) -> Result<String> {
+        extract_attested_public_key_base64(&self.attestation_object_base64)
+    }
+
+    pub fn client_data(&self) -> Result<ClientData> {
+        serde_json::from_str(&self.client_data_utf8).map_err(|e| e.into())
+    }
+
+    pub fn verify(&self) -> Result<()> {
+        let expected_client_data_hash = sha256_bytes(self.client_data_utf8.as_bytes());
+        let provided_client_data_hash = self.client_data_hash_base64.decode_bs64()?;
+        //todo: replace assert with error
+        assert_eq!(provided_client_data_hash, expected_client_data_hash);
+        let attestation_object = self.attestation_object_base64.decode_bs64()?;
+
+        let verified = verify_attestation(
+            &attestation_object,
+            REAL_SAMPLE_APP_ID,
+            &self.key_id,
+            &provided_client_data_hash,
+            APPLE_APP_ATTEST_ROOT_CA_PEM.as_bytes(),
+        )?;
+
+        assert_eq!(verified.environment, AppAttestEnvironment::Production);
+        assert_eq!(verified.counter, 0);
+        assert!(verified.receipt.is_some());
+        assert_eq!(verified.key_id, self.key_id.decode_bs64()?);
+        Ok(())
+    }
+}
+
+#[derive(Deserialize)]
+struct ClientData {
+    /// 业务层 challenge。
+    #[serde(rename = "challenge")]
+    challenge: String,
+    /// challenge 的签发时间。
+    #[serde(rename = "issuedAt")]
+    issued_at: String,
+    /// 可选的业务公钥字段，不是 App Attest 原生字段。
+    #[serde(rename = "pubkey")]
+    pubkey: Option<String>,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -379,33 +725,11 @@ mod tests {
     use openssl::hash::MessageDigest;
     use openssl::nid::Nid;
     use openssl::pkey::{PKey, Private};
+    use openssl::sign::Signer;
     use openssl::x509::extension::{BasicConstraints, KeyUsage};
     use openssl::x509::{X509, X509Extension, X509NameBuilder};
     use serde::Serialize;
     use serde_bytes::ByteBuf;
-
-    const APPLE_APP_ATTEST_ROOT_CA_PEM: &str = "-----BEGIN CERTIFICATE-----
-MIICITCCAaegAwIBAgIQC/O+DvHN0uD7jG5yH2IXmDAKBggqhkjOPQQDAzBSMSYw
-JAYDVQQDDB1BcHBsZSBBcHAgQXR0ZXN0YXRpb24gUm9vdCBDQTETMBEGA1UECgwK
-QXBwbGUgSW5jLjETMBEGA1UECAwKQ2FsaWZvcm5pYTAeFw0yMDAzMTgxODMyNTNa
-Fw00NTAzMTUwMDAwMDBaMFIxJjAkBgNVBAMMHUFwcGxlIEFwcCBBdHRlc3RhdGlv
-biBSb290IENBMRMwEQYDVQQKDApBcHBsZSBJbmMuMRMwEQYDVQQIDApDYWxpZm9y
-bmlhMHYwEAYHKoZIzj0CAQYFK4EEACIDYgAERTHhmLW07ATaFQIEVwTtT4dyctdh
-NbJhFs/Ii2FdCgAHGbpphY3+d8qjuDngIN3WVhQUBHAoMeQ/cLiP1sOUtgjqK9au
-Yen1mMEvRq9Sk3Jm5X8U62H+xTD3FE9TgS41o0IwQDAPBgNVHRMBAf8EBTADAQH/
-MB0GA1UdDgQWBBSskRBTM72+aEH/pwyp5frq5eWKoTAOBgNVHQ8BAf8EBAMCAQYw
-CgYIKoZIzj0EAwMDaAAwZQIwQgFGnByvsiVbpTKwSga0kP0e8EeDS4+sQmTvb7vn
-53O5+FRXgeLhpJ06ysC5PrOyAjEAp5U4xDgEgllF7En3VcE3iexZZtKeYnpqtijV
-oyFraWVIyd/dganmrduC1bmTBGwD
------END CERTIFICATE-----";
-    const REAL_SAMPLE_APP_ID: &str = "F632MRRB47.com.chainlessios.app";
-    const REAL_SAMPLE_KEY_ID: &str = "iwn+VwiPoc3zAe2FBaLXmau94x2wFJE7UyGxE7nPJ3Y=";
-    const REAL_SAMPLE_CLIENT_DATA_UTF8: &str = "{\"challenge\":\"YXR0ZXN0OjE3NzU1NDI4MjY1NjA6N2E1MDQ1YjI4ZGI0OWNhMTM5ODE5YjkxNDRl\",\"issuedAt\":1775542826561}";
-    const REAL_SAMPLE_CLIENT_DATA_HASH_BASE64: &str =
-        "NbOeAFN1xEAaRFFyW2uutyIbCq9eik4z592u73ug4Yw=";
-    const REAL_SAMPLE_ATTESTATION_OBJECT: &[u8] =
-        include_bytes!("testdata/ios_real_world_attestation_object.bin");
-    const REAL_SAMPLE_ATTESTATION_OBJECT_HEX: &str = "a363666d746f6170706c652d6170706174746573746761747453746d74a263783563825903cb308203c73082034ea0030201020206019d6699852b300a06082a8648ce3d040302304f3123302106035504030c1a4170706c6520417070204174746573746174696f6e204341203131133011060355040a0c0a4170706c6520496e632e3113301106035504080c0a43616c69666f726e6961301e170d3236303430363036323033305a170d3236313230333138333633305a3081913149304706035504030c4038623039666535373038386661316364663330316564383530356132643739396162626465333164623031343931336235333231623131336239636632373736311a3018060355040b0c114141412043657274696669636174696f6e31133011060355040a0c0a4170706c6520496e632e3113301106035504080c0a43616c69666f726e69613059301306072a8648ce3d020106082a8648ce3d030107034200045825f01b55600a2aaf6f38aa10a01e255b2b7c9b2d1ff692413ef514c5661621aca5aa5b1254933d84746e9be254c7645f3c0fe39b2d2969d38e285a797eb0a9a38201d1308201cd300c0603551d130101ff04023000300e0603551d0f0101ff0404030204f030140603551d25040d300b06092a864886f76364041830819106092a864886f763640805048183308180a40302010abf893003020101bf893103020100bf893203020101bf893303020101bf893421041f463633324d52524234372e636f6d2e636861696e6c657373696f732e617070a5060404736b7320bf893603020105bf893703020100bf893903020100bf893a03020100bf893b03020100aa03020100bf893c060204736b73203081cd06092a864886f7636408070481bf3081bcbf8a7806040431382e36bf885003020102bf8a79090407312e302e323136bf8a7b0704053232473836bf8a7c06040431382e36bf8a7d06040431382e36bf8a7e03020100bf8a7f03020100bf8b0003020100bf8b0103020100bf8b0203020100bf8b0303020100bf8b0403020101bf8b0503020100bf8b0a0f040d32322e372e38362e302e302c30bf8b0b0f040d32322e372e38362e302e302c30bf8b0c0f040d32322e372e38362e302e302c30bf88020a04086970686f6e656f73303306092a8648ce3d040302036700306402300a21ecbc001ed20add277abb581cb7e42515b7ccf46ecb0cbacf248ce50cfc00340101b2a0b33e7083ea11c0164af22d0230631a5f697353f63f20f5966eaa635acaf718a0b9607fccba14bf9ceaa1c9080e9347d5e836fd05108f3ff188833f42ea59024730820243308201c8a003020102021009bac5e1bc401ad9d45395bc381a0854300a06082a8648ce3d04030330523126302406035504030c1d4170706c6520417070204174746573746174696f6e20526f6f7420434131133011060355040a0c0a4170706c6520496e632e3113301106035504080c0a43616c69666f726e6961301e170d3230303331383138333935355a170d3330303331333030303030305a304f3123302106035504030c1a4170706c6520417070204174746573746174696f6e204341203131133011060355040a0c0a4170706c6520496e632e3113301106035504080c0a43616c69666f726e69613076301006072a8648ce3d020106052b8104002203620004ae5b37a0774d79b2358f40e7d1f22626f1c25fef17802deab3826a59874ff8d2ad1525789aa26604191248b63cb967069e98d363bd5e370fbfa08e329e8073a985e7746ea359a2f66f29db32af455e211658d567af9e267eb2614dc21a66ce99a366306430120603551d130101ff040830060101ff020100301f0603551d23041830168014ac91105333bdbe6841ffa70ca9e5faeae5e58aa1301d0603551d0e041604143ee35d1c0419a9c9b431f88474d6e1e15772e39b300e0603551d0f0101ff040403020106300a06082a8648ce3d0403030369003066023100bbbe888d738d0502cfbcfd666d09575035bcd6872c3f8430492629edd1f914e879991c9ae8b5aef8d3a85433f7b60d06023100ab38edd0cc81ed00a452c3ba44f993636553fecc297f2eb4df9f5ebe5a4acab6995c4b820df904386f7807bb589439b76772656365697074590f3c308006092a864886f70d010702a0803080020101310f300d06096086480165030402010500308006092a864886f70d010701a0802480048203e8318204f43027020102020101041f463633324d52524234372e636f6d2e636861696e6c657373696f732e617070308203d5020103020101048203cb308203c73082034ea0030201020206019d6699852b300a06082a8648ce3d040302304f3123302106035504030c1a4170706c6520417070204174746573746174696f6e204341203131133011060355040a0c0a4170706c6520496e632e3113301106035504080c0a43616c69666f726e6961301e170d3236303430363036323033305a170d3236313230333138333633305a3081913149304706035504030c4038623039666535373038386661316364663330316564383530356132643739396162626465333164623031343931336235333231623131336239636632373736311a3018060355040b0c114141412043657274696669636174696f6e31133011060355040a0c0a4170706c6520496e632e3113301106035504080c0a43616c69666f726e69613059301306072a8648ce3d020106082a8648ce3d030107034200045825f01b55600a2aaf6f38aa10a01e255b2b7c9b2d1ff692413ef514c5661621aca5aa5b1254933d84746e9be254c7645f3c0fe39b2d2969d38e285a797eb0a9a38201d1308201cd300c0603551d130101ff04023000300e0603551d0f0101ff0404030204f030140603551d25040d300b06092a864886f76364041830819106092a864886f763640805048183308180a40302010abf893003020101bf893103020100bf893203020101bf893303020101bf893421041f463633324d52524234372e636f6d2e636861696e6c657373696f732e617070a5060404736b7320bf893603020105bf893703020100bf893903020100bf893a03020100bf893b03020100aa03020100bf893c060204736b73203081cd06092a864886f7636408070481bf3081bcbf8a7806040431382e36bf885003020102bf8a79090407312e302e323136bf8a7b0704053232473836bf8a7c06040431382e36bf8a7d06040431382e36bf8a7e03020100bf8a7f03020100bf8b0003020100bf8b0103020100bf8b0203020100bf8b0303020100bf8b0403020101bf8b0503020100bf8b0a0f040d32322e372e38362e302e302c30bf8b0b0f040d32322e372e38362e302e302c30bf8b0c0f040d32322e372e38362e302e302c30bf88020a04086970686f6e656f73303306092a8648ce3d040302036700306402300a21ecbc001ed20add277abb581cb7e42515b7ccf46ecb0cbacf248ce50cfc00340101b2a0b33e7083ea11c0164af22d0230631a5f697353f63f20f5966eaa635acaf71804820110a0b9607fccba14bf9ceaa1c9080e9347d5e836fd05108f3ff188833f42ea3028020104020101042035b39e005375c4401a4451725b6baeb7221b0aaf5e8a4e33e7ddaeef7ba0e18c306002010502010104583842444a6e387a6731365468672f584b4b79764e713336625675506846304979557a6263316c4f6375555a646b376c757744636d463157385553625746386a394e5471552f5865466632494e4e3479754a437a6632413d3d300e02010602010104064154544553543012020107020101040a70726f64756374696f6e301f02010c0201010417323032362d30342d30375430363a32303a33302e33395a301f0201150201010417323032362d30372d30365430363a32303a33302e33395a000000000000a080308203ae30820354a003020102021066023880001426f75d8b0e152c5f6e43300a06082a8648ce3d040302307c3130302e06035504030c274170706c65204170706c69636174696f6e20496e746567726174696f6e2043412035202d20473131263024060355040b0c1d4170706c652043657274696669636174696f6e20417574686f7269747931133011060355040a0c0a4170706c6520496e632e310b3009060355040613025553301e170d3236303132303230323130395a170d3237303231383138353833395a305a3136303406035504030c2d4170706c69636174696f6e204174746573746174696f6e2046726175642052656365697074205369676e696e6731133011060355040a0c0a4170706c6520496e632e310b30090603550406130255533059301306072a8648ce3d020106082a8648ce3d030107034200043b18aecec519ad8a5351b44044b4a3039957b4cdbd5b851fe01a6fede28defb0fab0c36a02a41f446e006d580e568a67808907f3488091438b20ceaa4c9ddc56a38201d8308201d4300c0603551d130101ff04023000301f0603551d23041830168014d917fe4b6790384b92f4dbced55780140b8f3dc9304306082b0601050507010104373035303306082b060105050730018627687474703a2f2f6f6373702e6170706c652e636f6d2f6f63737030332d616169636135673130313082011c0603551d20048201133082010f3082010b06092a864886f7636405013081fd3081c306082b060105050702023081b60c81b352656c69616e6365206f6e207468697320636572746966696361746520627920616e7920706172747920617373756d657320616363657074616e6365206f6620746865207468656e206170706c696361626c65207374616e64617264207465726d7320616e6420636f6e646974696f6e73206f66207573652c20636572746966696361746520706f6c69637920616e642063657274696669636174696f6e2070726163746963652073746174656d656e74732e303506082b060105050702011629687474703a2f2f7777772e6170706c652e636f6d2f6365727469666963617465617574686f72697479301d0603551d0e041604143455897074600e22d2ba67cfa55b69c223f1ca28300e0603551d0f0101ff040403020780300f06092a864886f763640c0f04020500300a06082a8648ce3d040302034800304502201c6797b98245d1d6dc7204b79b023caff87bf2eff8937dd720c45e8ae465c2eb022100fcc85984cec9a12cc286a9d49276fdf0d2f625dc75fc7cf88745697be61eaab4308202f93082027fa003020102021056fb83d42bff8dc3379923b55aae6ebd300a06082a8648ce3d0403033067311b301906035504030c124170706c6520526f6f74204341202d20473331263024060355040b0c1d4170706c652043657274696669636174696f6e20417574686f7269747931133011060355040a0c0a4170706c6520496e632e310b3009060355040613025553301e170d3139303332323137353333335a170d3334303332323030303030305a307c3130302e06035504030c274170706c65204170706c69636174696f6e20496e746567726174696f6e2043412035202d20473131263024060355040b0c1d4170706c652043657274696669636174696f6e20417574686f7269747931133011060355040a0c0a4170706c6520496e632e310b30090603550406130255533059301306072a86488648ce3d020106082a8648ce3d0301070342000124b398ef5f61ac6aca028ec7386bfec12520246b3d8c77e9b2ca0d5bd112f8487955f744a3636ea09f256f927eaf8cf2abb341067c4bd0c97ebd2facf2e0dfaea8e07dcc207d0c03c180d54744c0407fc1014c00c0407fcc07c180d54748c1060c05a0052eec37a8560ce226a922a677afaf7aebf6b2c92acc1181820ac180414141c040410e8c0e0c0d81820ac180414141cc00618a9a1d1d1c0e8bcbdbd8dcdc0b985c1c1b194b98dbdb4bdbd8dcdc0c0ccb585c1c1b195c9bdbdd18d859cccc0dc180d54747c10c0c0b8c0b280aa80a21899a1d1d1c0e8bcbd8dc9b0b985c1c1b194b98dbdb4bd85c1c1b195c9bdbdd18d859cccb98dc9b0c074180d54743810581053645ff92d9e40e12e4bd36f3b555e00502e3cf724c038180d54743c0407fc10100c080418c0401828aa19221bdd8d9018080c10081400c0281820aa192338f4100c0cc19cc46cc064180d54100c304905c1c1b1948149bdbdd0810d0480b4811cccc498c090180d54102c307505c1c1b194810d95c9d1a599a58d85d1a5bdb88105d5d1a1bdc9a5d1e4c44cc044180d541028302905c1c1b1948125b98cb8c42cc024180d5410184c09554cc0785c34c4d0c0d0ccc0c4e0c4e4c0d9685c34cce4c0d0ccc0c4e0c4e4c0d968c19cc46cc064180d54100c304905c1c1b1948149bdbdd0810d0480b4811cccc498c090180d54102c307505c1c1b194810d95c9d1a599a58d85d1a5bdb88105d5d1a1bdc9a5d1e4c44cc044180d541028302905c1c1b1948125b98cb8c42cc024180d5410184c09554c1d8c040181caa192338f408041814ae041000880d88001263a4bcf501ca93b64c89ca044c73744257c7168d39c770505b643b969814a9dd91ed7d38e34eec7112d5ffd47ed8c9897727a6116d3cc13c456803f561603297d43cb1341d1c4dd76a5e5e5dbcc573b4ae75ec80ef62e553657a6690e94428c68d08c100c074180d54743810581052eec37a8560ce226a922a677afaf7aebf6b2c92acc03c180d54744c0407fc1014c00c0407fcc038180d54743c0407fc10100c080418c0281820aa192338f4100c0c0da000c19408c4020fa7071059786974d06367b7bfd1b03801192ee37ec91847143ff799ea328699af3b080f5273d64f19d2e1ab7ea88c5408c1b59a28432b5037513f36350cfad2298e94cdbb8db7685edd907f214c9be62189d0e42c5d6f2d46a033a0600f9e8ac8a00000c607f4c207e8080404c20640c1f0c4c0c0b8180d54100c309d05c1c1b1948105c1c1b1a58d85d1a5bdb88125b9d1959dc985d1a5bdb8810d0480d480b4811cc4c498c090180d54102c307505c1c1b194810d95c9d1a599a58d85d1a5bdb88105d5d1a1bdc9a5d1e4c44cc044180d541028302905c1c1b1948125b98cb8c42cc024180d5410184c09554c08419808e20000509bdd762c3854b17db90cc034182582192005940c1008041400c0281820aa192338f4100c08111cc114088402d18ddcedea66055fdce2042251757c47097abe941c32f8316dd36b19bc8c85c408819e10b722136285d2a70bc86e9a25ca4a61975a509c88a7e385f8fa8a48f50038000000000001a185d5d1a11185d185629312cd2d8b1e936dc7b7a96ad79c57f77b6ecfc2662fc5a0ddef9b68b9db2b1945000000000185c1c185d1d195cdd00000000000000000822c27f95c223e8737cc07b614168b5e66aef78c76c05244ed4c86c44ee73c9dda9404080c9880048560816097c06d558028aabdbce2a8428078956cadf26cb47fda4904fbd45315985884896082b296a96c49524cf611d1ba6f89531d917cf03f8e6cb4a5a74e38a169e5fac2a";
 
     #[derive(Serialize)]
     struct EncodedAttestationObject {
@@ -423,16 +747,11 @@ oyFraWVIyd/dganmrduC1bmTBGwD
         receipt: Option<ByteBuf>,
     }
 
-    #[derive(Deserialize)]
-    struct RealWorldSample {
-        #[serde(rename = "keyId")]
-        key_id: String,
-        #[serde(rename = "clientDataUtf8")]
-        client_data_utf8: String,
-        #[serde(rename = "clientDataHashBase64")]
-        client_data_hash_base64: String,
-        #[serde(rename = "attestationObjectBase64")]
-        attestation_object_base64: String,
+    #[derive(Serialize)]
+    struct EncodedAssertionObject {
+        signature: ByteBuf,
+        #[serde(rename = "authenticatorData")]
+        authenticator_data: ByteBuf,
     }
 
     #[test]
@@ -559,6 +878,7 @@ oyFraWVIyd/dganmrduC1bmTBGwD
         Ok(())
     }
 
+    #[test]
     fn test_verify_attestation_accepts_real_world_sample() -> Result<()> {
         let sample: RealWorldSample = serde_json::from_str(include_str!(
             "./testdata/ios_real_world_attestation_object.txt"
@@ -580,6 +900,131 @@ oyFraWVIyd/dganmrduC1bmTBGwD
         assert_eq!(verified.counter, 0);
         assert!(verified.receipt.is_some());
         assert_eq!(verified.key_id, STANDARD.decode(&sample.key_id)?);
+        Ok(())
+    }
+
+    #[test]
+    fn test_parse_attestation_object_base64_extracts_real_world_public_key() -> Result<()> {
+        let sample: RealWorldSample = serde_json::from_str(include_str!(
+            "./testdata/ios_real_world_attestation_object.txt"
+        ))?;
+        let client_data_hash = STANDARD.decode(&sample.client_data_hash_base64)?;
+        let attestation_object = STANDARD.decode(&sample.attestation_object_base64)?;
+
+        let parsed = parse_attestation_object_base64(&sample.attestation_object_base64)?;
+        println!("{:#?}", parsed);
+        let verified = verify_attestation(
+            &attestation_object,
+            REAL_SAMPLE_APP_ID,
+            &sample.key_id,
+            &client_data_hash,
+            APPLE_APP_ATTEST_ROOT_CA_PEM.as_bytes(),
+        )?;
+
+        assert_eq!(parsed.fmt, APPLE_APP_ATTEST_FORMAT);
+        assert_eq!(parsed.environment, AppAttestEnvironment::Production);
+        assert_eq!(parsed.counter, 0);
+        assert_eq!(parsed.credential_id_base64, sample.key_id);
+        assert!(parsed.public_key_matches_certificate);
+        assert_eq!(
+            parsed.public_key_raw_hex,
+            hex::encode(&verified.public_key_raw)
+        );
+        assert_eq!(
+            parsed.public_key_spki_der_base64,
+            STANDARD.encode(&verified.public_key_spki_der)
+        );
+        assert_eq!(parsed.key_id_from_public_key_raw_base64, sample.key_id);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_extract_attested_public_key_base64_matches_verified_public_key() -> Result<()> {
+        let sample: RealWorldSample = serde_json::from_str(include_str!(
+            "./testdata/ios_real_world_attestation_object.txt"
+        ))?;
+        let client_data_hash = STANDARD.decode(&sample.client_data_hash_base64)?;
+        let attestation_object = STANDARD.decode(&sample.attestation_object_base64)?;
+        let verified = verify_attestation(
+            &attestation_object,
+            REAL_SAMPLE_APP_ID,
+            &sample.key_id,
+            &client_data_hash,
+            APPLE_APP_ATTEST_ROOT_CA_PEM.as_bytes(),
+        )?;
+
+        let extracted = extract_attested_public_key_base64(&sample.attestation_object_base64)?;
+
+        assert_eq!(extracted, STANDARD.encode(&verified.public_key_spki_der));
+        Ok(())
+    }
+
+    #[test]
+    fn test_verify_attested_signature_accepts_valid_signature() -> Result<()> {
+        let key = generate_p256_key()?;
+        let public_key_spki_der = key.public_key_to_der()?;
+        let message = b"apple-attested-signature";
+
+        let mut signer = Signer::new(MessageDigest::sha256(), &key)?;
+        signer.update(message)?;
+        let signature = signer.sign_to_vec()?;
+
+        assert!(verify_attested_signature(
+            &public_key_spki_der,
+            message,
+            &signature
+        )?);
+        Ok(())
+    }
+
+    #[test]
+    fn test_verify_assertion_accepts_synthetic_sample() -> Result<()> {
+        let key = generate_p256_key()?;
+        let public_key_spki_der = key.public_key_to_der()?;
+        let client_data_hash = sha256_bytes(b"synthetic-assertion-client-data");
+        let auth_data = build_assertion_auth_data(REAL_SAMPLE_APP_ID, 1);
+        let mut nonce_input = auth_data.clone();
+        nonce_input.extend_from_slice(&client_data_hash);
+        let nonce = sha256_bytes(&nonce_input);
+        let ec_private_key = key.ec_key()?;
+        let signature = EcdsaSig::sign(&nonce, &ec_private_key)?.to_der()?;
+        let assertion_object = encode_assertion_object(&auth_data, &signature)?;
+
+        let verified = verify_assertion(
+            &assertion_object,
+            &public_key_spki_der,
+            REAL_SAMPLE_APP_ID,
+            &client_data_hash,
+            Some(0),
+        )?;
+
+        assert_eq!(verified.counter, 1);
+        Ok(())
+    }
+
+    #[test]
+    fn test_verify_assertion_rejects_current_real_ios_app_attest_sample_inputs() -> Result<()> {
+        let key_id = "nThQwiP+HradRyKn+z3swgfJSLceU1obrhKW3qUOEnE=";
+        let client_data_utf8 = "{\"type\":\"appattest-assertion\",\"keyId\":\"nThQwiP+HradRyKn+z3swgfJSLceU1obrhKW3qUOEnE=\",\"issuedAt\":1777261702944,\"nonce\":\"ec85dd8ac44e28562a35ee37fb8\"}";
+        let client_data_hash_base64 = "+2DTQXAUzN//ymEY5auL/OjhslHpWioaJkxhmDY2eMw=";
+        let assertion_object_base64 = "omlzaWduYXR1cmVYRjBEAiAIkiTwQwIqF/ccMt86+Jap57jy2sVx6MqNYImEhMKvswIgGUxiTZlDBXWoaUJJoHLg51sshT8cJc6yo8VYHsrXBoBxYXV0aGVudGljYXRvckRhdGFYJcSzS2LHpNtx7epatecV/d7bs/CZi/FoN3vm2i52ysZRQAAAAAE=";
+        let public_key_spki_der_base64 = "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE/ZLnrdo5WjjI/wf8jSVKsUBoC4YVasOiE87nRkpKhb1mtAuCQmB7FlCgpJzkWmyZPut/fsyYerGFCUvjWme9tg==";
+
+        let expected_client_data_hash = sha256_bytes(client_data_utf8.as_bytes());
+        let provided_client_data_hash = STANDARD.decode(client_data_hash_base64)?;
+        assert_eq!(expected_client_data_hash, provided_client_data_hash);
+
+        let err = verify_assertion_base64(
+            assertion_object_base64,
+            public_key_spki_der_base64,
+            REAL_SAMPLE_APP_ID,
+            client_data_hash_base64,
+            Some(0),
+        )
+        .unwrap();
+
+        assert_eq!(key_id, "nThQwiP+HradRyKn+z3swgfJSLceU1obrhKW3qUOEnE=");
         Ok(())
     }
 
@@ -666,6 +1111,14 @@ oyFraWVIyd/dganmrduC1bmTBGwD
         Ok(serde_cbor::to_vec(&object)?)
     }
 
+    fn encode_assertion_object(auth_data: &[u8], signature_der: &[u8]) -> Result<Vec<u8>> {
+        let object = EncodedAssertionObject {
+            signature: ByteBuf::from(signature_der.to_vec()),
+            authenticator_data: ByteBuf::from(auth_data.to_vec()),
+        };
+        Ok(serde_cbor::to_vec(&object)?)
+    }
+
     fn build_auth_data(
         app_id: &str,
         credential_id: &[u8],
@@ -683,6 +1136,14 @@ oyFraWVIyd/dganmrduC1bmTBGwD
         auth_data.extend_from_slice(&(credential_id.len() as u16).to_be_bytes());
         auth_data.extend_from_slice(credential_id);
         auth_data.extend_from_slice(credential_public_key);
+        auth_data
+    }
+
+    fn build_assertion_auth_data(app_id: &str, counter: u32) -> Vec<u8> {
+        let mut auth_data = Vec::with_capacity(37);
+        auth_data.extend_from_slice(&sha256_bytes(app_id.as_bytes()));
+        auth_data.push(FLAG_ATTESTED_CREDENTIAL_DATA);
+        auth_data.extend_from_slice(&counter.to_be_bytes());
         auth_data
     }
 

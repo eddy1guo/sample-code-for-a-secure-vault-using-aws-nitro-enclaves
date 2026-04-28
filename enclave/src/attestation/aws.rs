@@ -5,6 +5,9 @@ use serde::Deserialize;
 use serde_bytes::ByteBuf;
 use std::collections::BTreeMap;
 use std::ops::Not;
+use std::sync::Mutex;
+
+static NITRO_DEBUG_MODE: Mutex<Option<bool>> = Mutex::new(None);
 
 #[derive(Debug)]
 pub struct CoseSign1Doc {
@@ -70,6 +73,43 @@ pub fn get_attestation_document(user_data: &[u8], nonce: &[u8]) -> Result<Vec<u8
         Response::Error(code) => Err(anyhow!("NSM attestation failed: {:?}", code)),
         other => Err(anyhow!("unexpected NSM response: {:?}", other)),
     }
+}
+
+pub fn is_nitro_debug_mode() -> Result<bool> {
+    let mut cached = NITRO_DEBUG_MODE
+        .lock()
+        .map_err(|_| anyhow!("nitro debug mode cache lock poisoned"))?;
+
+    if let Some(is_debug) = *cached {
+        return Ok(is_debug);
+    }
+
+    let is_debug = detect_nitro_debug_mode()?;
+    *cached = Some(is_debug);
+    println!("is_nitro_debug_mode: {} ", is_debug);
+    Ok(is_debug)
+}
+
+fn detect_nitro_debug_mode() -> Result<bool> {
+    let attestation = get_attestation_document(b"", b"nitro-debug-check")
+        .map_err(|err| anyhow!("failed to get attestation document: {err}"))?;
+    let arr: Vec<serde_cbor::Value> = serde_cbor::from_slice(&attestation)
+        .map_err(|err| anyhow!("failed to decode COSE_Sign1: {err}"))?;
+    let payload_bytes = match arr.get(2) {
+        Some(serde_cbor::Value::Bytes(bytes)) => bytes,
+        _ => bail!("attestation document is missing COSE payload bytes"),
+    };
+    let doc: AttestationDoc = serde_cbor::from_slice(payload_bytes)
+        .map_err(|err| anyhow!("failed to decode attestation payload: {err}"))?;
+
+    if doc.pcrs.is_empty() {
+        bail!("attestation document does not contain PCRs");
+    }
+
+    Ok(doc
+        .pcrs
+        .values()
+        .all(|pcr| pcr.iter().all(|byte| *byte == 0)))
 }
 
 fn parse_cose_sign1(raw: &[u8]) -> Result<CoseSign1Doc> {

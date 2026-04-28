@@ -5,7 +5,49 @@ use openssl::stack::Stack;
 use openssl::x509::store::X509StoreBuilder;
 use openssl::x509::{X509, X509StoreContext};
 use openssl_sys as ffi;
+use serde::{Deserialize, Serialize};
 use std::slice;
+use strum_macros::{Display, EnumString};
+
+#[derive(Deserialize, Serialize, Debug, Clone, PartialEq, Eq)]
+pub struct TeeClient {
+    ///
+    pub platform: Platform,
+    pub pubkey: String,
+    pub usage: Usage,
+}
+
+#[derive(Deserialize, Serialize, Debug, Clone, PartialEq, Eq)]
+pub struct WalletKeyBond {
+    ///
+    pub client_platform: Platform,
+    pub client_pubkey: String,
+    pub wallet_prikey: String,
+    pub usage: Usage,
+}
+
+impl WalletKeyBond {
+    pub fn into_tee_client(self) -> TeeClient {
+        TeeClient {
+            platform: self.client_platform,
+            pubkey: self.client_pubkey,
+            usage: self.usage,
+        }
+    }
+}
+
+#[derive(Deserialize, Serialize, Debug, Display, EnumString, PartialEq, Eq, Clone)]
+pub enum Platform {
+    Apple,
+    Google,
+}
+
+#[derive(Deserialize, Serialize, Debug, Display, EnumString, PartialEq, Eq, Clone)]
+pub enum Usage {
+    TeeClientRegister,
+    CreatedWalletKey,
+    WalletSign,
+}
 
 pub fn sha256_bytes(data: &[u8]) -> Vec<u8> {
     sha256(data).to_vec()

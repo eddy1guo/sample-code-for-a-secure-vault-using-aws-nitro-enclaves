@@ -10,7 +10,8 @@ use std::thread;
 use anyhow::{Error, Result, anyhow};
 use enclave_vault::attestation::aws::get_attestation_document;
 use enclave_vault::models::{
-    CreateWalletKeyRequest, EnclaveAction, ParentRequest, WalletSignRequest,
+    CreateWalletKeyRequest, EnclaveAction, ParentRequest, TeeClientRegisterRequest,
+    WalletSignRequest,
 };
 use enclave_vault::{
     constants::{ENCLAVE_PORT, MAX_CONCURRENT_CONNECTIONS},
@@ -99,6 +100,19 @@ fn handle_create_wallet_key(
     Ok((value, Vec::new()))
 }
 
+fn handle_tee_client_register(
+    request: EnclaveRequest<TeeClientRegisterRequest>,
+) -> Result<(Value, Vec<Error>)> {
+    use serde_json::{Map, Value};
+    println!("start to handle tee_client_register");
+    // Decrypt the individual field values (uses rayon for parallelization internally)
+    let client = request.encrypt_tee_client()?;
+    let mut fields: HashMap<String, Value> = Default::default();
+    fields.insert("tee_client".to_string(), client.into());
+    let value = Value::Object(fields.into_iter().collect::<Map<String, Value>>());
+    Ok((value, Vec::new()))
+}
+
 fn handle_client<S: Read + Write>(mut stream: S) -> Result<()> {
     println!("[enclave] handling client");
 
@@ -116,6 +130,10 @@ fn handle_client<S: Read + Write>(mut stream: S) -> Result<()> {
             Ok(EnclaveAction::CreateWalletKey { inner }) => (
                 inner.request.nonce.clone().into_bytes(),
                 handle_create_wallet_key(inner)?,
+            ),
+            Ok(EnclaveAction::TeeClientRegister { inner }) => (
+                inner.request.nonce.clone().into_bytes(),
+                handle_tee_client_register(inner)?,
             ),
             Err(err) => return send_error(stream, err),
         },

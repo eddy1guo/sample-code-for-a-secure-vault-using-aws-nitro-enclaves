@@ -2,7 +2,12 @@ use crate::attestation::common::{
     DerElement, certificate_extension_value, find_context_specific, load_pem_certificates,
     parse_der, verify_cert_chain,
 };
+use crate::codec::bs64::DecodeBs64;
 use anyhow::{Result, anyhow, bail};
+use base64::alphabet::STANDARD;
+use openssl::hash::MessageDigest;
+use openssl::pkey::PKey;
+use openssl::sign::Verifier as OpenSslVerifier;
 use openssl::x509::X509;
 use serde::Deserialize;
 use std::collections::BTreeMap;
@@ -75,45 +80,133 @@ pub enum VerifiedBootState {
     Failed,
 }
 
+#[derive(Deserialize)]
+pub struct RealWorldSample {
+    /// attestation challenge 的 Base64。
+    #[serde(rename = "attestationChallengeBase64")]
+    attestation_challenge_base64: String,
+    /// 被证明公钥的 SPKI DER Base64。
+    #[serde(rename = "publicKeyBase64")]
+    pub public_key_base64: String,
+    /// 是否为硬件支持的证明。
+    #[serde(rename = "hardwareBacked")]
+    hardware_backed: bool,
+    /// 是否由 StrongBox 提供。
+    #[serde(rename = "strongBoxBacked")]
+    strongbox_backed: bool,
+    /// 证明证书链，通常叶子证书在前。
+    #[serde(rename = "attestationCertChainBase64")]
+    attestation_cert_chain_base64: Vec<String>,
+}
+
+impl RealWorldSample {
+    pub fn verify(&self) -> Result<()> {
+        let challenge = self.attestation_challenge_base64.decode_bs64()?;
+        let expected_public_key = self.public_key_base64.decode_bs64()?;
+        let chain = self
+            .attestation_cert_chain_base64
+            .iter()
+            .map(|cert| cert.decode_bs64().map_err(anyhow::Error::from))
+            .collect::<Result<Vec<Vec<u8>>>>()?;
+        let requirements = KeyAttestationRequirements {
+            challenge: &challenge,
+            root_pems: &[],
+            expected_package_name: Some("com.chainlessandroid.app"),
+            expected_signature_digests: &[],
+            require_hardware_backed: true,
+            require_verified_boot: true,
+        };
+
+        let verified = verify_google_attestation(&chain, &requirements, None)?;
+        //todo: return error
+        assert_eq!(verified.challenge, challenge);
+        assert_eq!(verified.public_key_spki_der, expected_public_key);
+        assert!(self.hardware_backed);
+        assert!(!self.strongbox_backed);
+        assert_eq!(
+            verified.attestation_security_level,
+            SecurityLevel::TrustedEnvironment
+        );
+        assert_eq!(
+            verified.keymint_security_level,
+            SecurityLevel::TrustedEnvironment
+        );
+        assert!(verified.root_of_trust.device_locked);
+        assert_eq!(
+            verified.root_of_trust.verified_boot_state,
+            VerifiedBootState::Verified
+        );
+        assert_eq!(
+            verified
+                .application_id
+                .as_ref()
+                .expect("application id")
+                .package_names,
+            vec!["com.chainlessandroid.app".to_string()]
+        );
+        Ok(())
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RootOfTrust {
+    /// Verified Boot 使用的根公钥/哈希材料。
     pub verified_boot_key: Vec<u8>,
+    /// 设备引导加载器是否处于锁定状态。
     pub device_locked: bool,
+    /// Verified Boot 当前状态，例如 Verified / SelfSigned / Failed。
     pub verified_boot_state: VerifiedBootState,
+    /// 可选的 verified boot hash，不是所有设备都会提供。
     pub verified_boot_hash: Option<Vec<u8>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AttestationApplicationId {
+    /// 被证明密钥绑定到的应用包名列表。
     pub package_names: Vec<String>,
+    /// 应用签名证书摘要列表，用于确认是哪一个签名身份。
     pub signature_digests: Vec<Vec<u8>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct VerifiedKeyAttestation {
+    /// Android Key Attestation 结构版本。
     pub attestation_version: u64,
+    /// 产生 attestation 的安全级别，区分 Software / TEE / StrongBox。
     pub attestation_security_level: SecurityLevel,
+    /// KeyMint/Keymaster 版本。
     pub keymint_version: u64,
+    /// KeyMint/Keymaster 所在安全级别。
     pub keymint_security_level: SecurityLevel,
+    /// 创建密钥时绑定进去的 challenge。
     pub challenge: Vec<u8>,
+    /// 设备生成的 unique ID，通常不建议拿它做长期业务标识。
     pub unique_id: Vec<u8>,
+    /// Verified Boot 根信任信息。
     pub root_of_trust: RootOfTrust,
+    /// 可选的 attestation application id，包含包名和签名摘要。
     pub application_id: Option<AttestationApplicationId>,
+    /// 被证明密钥本身的公钥，SPKI DER 编码。
     pub public_key_spki_der: Vec<u8>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 pub struct RevocationStatusList {
+    /// 以证书序列号为键的吊销状态表。
     pub entries: BTreeMap<String, RevocationStatusEntry>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 pub struct RevocationStatusEntry {
+    /// 当前吊销状态。
     pub status: RevocationState,
+    /// 状态过期时间。
     #[serde(default)]
     pub expires: Option<String>,
+    /// 吊销原因。
     #[serde(default)]
     pub reason: Option<RevocationReason>,
+    /// 额外说明。
     #[serde(default)]
     pub comment: Option<String>,
 }
@@ -137,33 +230,53 @@ pub enum RevocationReason {
 
 #[derive(Debug, Clone, Copy)]
 pub struct KeyAttestationRequirements<'a> {
+    /// 服务端下发并要求写入证明的 challenge。
     pub challenge: &'a [u8],
+    /// 信任根证书集合。
     pub root_pems: &'a [&'a [u8]],
+    /// 期望的包名。
     pub expected_package_name: Option<&'a str>,
+    /// 期望的应用签名证书摘要列表。
     pub expected_signature_digests: &'a [&'a [u8]],
+    /// 是否强制要求密钥由硬件安全环境生成并证明。
     pub require_hardware_backed: bool,
+    /// 是否强制要求 Verified Boot 且设备锁定。
     pub require_verified_boot: bool,
 }
 
 #[derive(Debug, Default)]
 struct AuthorizationList {
+    /// 密钥用途列表，例如 sign / verify。
     purposes: Vec<u64>,
+    /// 密钥来源，例如 GENERATED。
     origin: Option<u64>,
+    /// 是否允许被所有应用使用；生产中通常必须为 false。
     all_applications: bool,
+    /// 是否支持回滚防护。
     rollback_resistance: bool,
+    /// RootOfTrust 信息。
     root_of_trust: Option<RootOfTrust>,
+    /// 绑定的应用身份信息。
     attestation_application_id: Option<AttestationApplicationId>,
 }
 
 #[derive(Debug)]
 struct KeyDescription {
+    /// attestation 结构版本。
     attestation_version: u64,
+    /// attestation 所在安全级别。
     attestation_security_level: SecurityLevel,
+    /// KeyMint/Keymaster 版本。
     keymint_version: u64,
+    /// KeyMint/Keymaster 所在安全级别。
     keymint_security_level: SecurityLevel,
+    /// attestation challenge。
     challenge: Vec<u8>,
+    /// unique ID。
     unique_id: Vec<u8>,
+    /// 软件侧生效的授权列表。
     software_enforced: AuthorizationList,
+    /// 硬件侧生效的授权列表，安全要求通常重点看这一部分。
     hardware_enforced: AuthorizationList,
 }
 
@@ -344,6 +457,20 @@ pub fn verify_google_attestation(
     Ok(verified)
 }
 
+/// 使用 Android Key Attestation 证明出的 P-256 公钥验证 ECDSA-SHA256 签名。
+///
+/// `signature_der` 应为 ASN.1 DER / X9.62 格式。
+pub fn verify_attested_signature(
+    public_key_spki_der: &[u8],
+    message: &[u8],
+    signature_der: &[u8],
+) -> Result<bool> {
+    let public_key = PKey::public_key_from_der(public_key_spki_der)?;
+    let mut verifier = OpenSslVerifier::new(MessageDigest::sha256(), &public_key)?;
+    verifier.update(message)?;
+    Ok(verifier.verify(signature_der)?)
+}
+
 fn parse_key_description(raw: &[u8]) -> Result<KeyDescription> {
     let (sequence, rest) = parse_der(raw)?;
     if !rest.is_empty() {
@@ -496,25 +623,12 @@ mod tests {
     use openssl::hash::MessageDigest;
     use openssl::nid::Nid;
     use openssl::pkey::{PKey, Private};
+    use openssl::sign::Signer;
     use openssl::x509::extension::{BasicConstraints, KeyUsage};
     use openssl::x509::{X509, X509Extension, X509NameBuilder};
     use serde::Deserialize;
     use std::fs;
     use std::path::PathBuf;
-
-    #[derive(Deserialize)]
-    struct RealWorldSample {
-        #[serde(rename = "attestationChallengeBase64")]
-        attestation_challenge_base64: String,
-        #[serde(rename = "publicKeyBase64")]
-        public_key_base64: String,
-        #[serde(rename = "hardwareBacked")]
-        hardware_backed: bool,
-        #[serde(rename = "strongBoxBacked")]
-        strongbox_backed: bool,
-        #[serde(rename = "attestationCertChainBase64")]
-        attestation_cert_chain_base64: Vec<String>,
-    }
 
     #[test]
     fn test_verify_attestation_accepts_hardware_backed_key() -> Result<()> {
@@ -619,7 +733,25 @@ mod tests {
         Ok(())
     }
 
-    fn verify_real_world_sample(attestation_path: &str) -> Result<()> {
+    #[test]
+    fn test_verify_attested_signature_accepts_valid_signature() -> Result<()> {
+        let key = generate_p256_key()?;
+        let public_key_spki_der = key.public_key_to_der()?;
+        let message = b"google-attested-signature";
+
+        let mut signer = Signer::new(MessageDigest::sha256(), &key)?;
+        signer.update(message)?;
+        let signature = signer.sign_to_vec()?;
+
+        assert!(verify_attested_signature(
+            &public_key_spki_der,
+            message,
+            &signature
+        )?);
+        Ok(())
+    }
+
+    pub fn verify_real_world_sample(attestation_path: &str) -> Result<()> {
         let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("src")
             .join("attestation")
