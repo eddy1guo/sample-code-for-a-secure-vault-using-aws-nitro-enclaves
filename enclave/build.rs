@@ -13,6 +13,7 @@ fn main() {
 
     if target.contains("linux-musl") {
         // Add library search path for the AWS SDK libraries
+        println!("cargo:rustc-link-search=native=/opt/aws-lc/lib");
         println!("cargo:rustc-link-search=native=/usr/lib");
 
         // Link against aws-nitro-enclaves-sdk-c and all its dependencies
@@ -39,7 +40,8 @@ fn main() {
         // NSM library for attestation (dynamic - built from Rust crate)
         println!("cargo:rustc-link-lib=dylib=nsm");
 
-        // Crypto library (from aws-lc build)
-        println!("cargo:rustc-link-lib=static=crypto");
+        // Link the symbol-prefixed AWS-LC archive under a distinct library name
+        // so it can coexist with Rust's system OpenSSL libcrypto.
+        println!("cargo:rustc-link-lib=static=aws_lc_0_35_0_crypto");
     }
 }

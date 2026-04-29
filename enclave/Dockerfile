@@ -12,6 +12,19 @@ ARG TARGETPLATFORM
 ARG SOURCE_DATE_EPOCH
 ENV RUSTFLAGS="-C target-feature=-crt-static"
 ENV CMAKE_POLICY_VERSION_MINIMUM=3.5
+ENV OPENSSL_NO_VENDOR=1
+ENV OPENSSL_NO_PKG_CONFIG=1
+ENV OPENSSL_STATIC=1
+ENV OPENSSL_DIR=/usr
+ENV OPENSSL_LIB_DIR=/usr/lib
+ENV OPENSSL_INCLUDE_DIR=/usr/include
+ENV OPENSSL_LIBS=crypto
+ENV AARCH64_UNKNOWN_LINUX_MUSL_OPENSSL_NO_PKG_CONFIG=1
+ENV AARCH64_UNKNOWN_LINUX_MUSL_OPENSSL_STATIC=1
+ENV AARCH64_UNKNOWN_LINUX_MUSL_OPENSSL_DIR=/usr
+ENV AARCH64_UNKNOWN_LINUX_MUSL_OPENSSL_LIB_DIR=/usr/lib
+ENV AARCH64_UNKNOWN_LINUX_MUSL_OPENSSL_INCLUDE_DIR=/usr/include
+ENV AARCH64_UNKNOWN_LINUX_MUSL_OPENSSL_LIBS=crypto
 
 # Install system dependencies / packages.
 RUN apk --no-cache add \
@@ -22,6 +35,8 @@ RUN apk --no-cache add \
     gcc \
     git \
     go \
+    openssl-dev \
+    openssl-libs-static \
     perl \
     curl \
     make \
@@ -33,11 +48,16 @@ RUN ln -s /usr/lib /usr/lib64
 
 WORKDIR /tmp/crt-builder
 
-# Build AWS libcrypto
+COPY aws_lc_prefix_include /tmp/aws_lc_prefix_include
+
+# Build a symbol-prefixed AWS-LC for the Nitro C SDK so it can coexist with
+# Rust's system OpenSSL libcrypto without symbol collisions.
 RUN git clone --depth 1 -b v1.41.1 https://github.com/awslabs/aws-lc.git
 RUN cmake \
     -DCMAKE_PREFIX_PATH=/usr \
-    -DCMAKE_INSTALL_PREFIX=/usr \
+    -DCMAKE_INSTALL_PREFIX=/opt/aws-lc \
+    -DBORINGSSL_PREFIX=aws_lc_0_35_0 \
+    -DBORINGSSL_PREFIX_HEADERS=/tmp/aws_lc_prefix_include \
     -DBUILD_TESTING=0 \
     -S aws-lc \
     -B aws-lc/build
@@ -46,7 +66,7 @@ RUN cmake --build aws-lc/build --parallel $(nproc) --target install
 # AWS-S2N
 RUN git clone --depth 1 -b v1.3.46 https://github.com/aws/s2n-tls.git
 RUN cmake \
-    -DCMAKE_PREFIX_PATH=/usr \
+    "-DCMAKE_PREFIX_PATH=/opt/aws-lc;/usr" \
     -DCMAKE_INSTALL_PREFIX=/usr \
     -DBUILD_TESTING=0 \
     -S s2n-tls \
@@ -56,7 +76,7 @@ RUN cmake --build s2n-tls/build --parallel $(nproc) --target install
 # AWS-C-COMMON
 RUN git clone --depth 1 -b v0.8.0 https://github.com/awslabs/aws-c-common.git
 RUN cmake \
-    -DCMAKE_PREFIX_PATH=/usr \
+    "-DCMAKE_PREFIX_PATH=/opt/aws-lc;/usr" \
     -DCMAKE_INSTALL_PREFIX=/usr \
     -DBUILD_TESTING=0 \
     -S aws-c-common \
@@ -66,7 +86,7 @@ RUN cmake --build aws-c-common/build --parallel $(nproc) --target install
 # AWS-C-SDKUTILS
 RUN git clone --depth 1 -b v0.1.2 https://github.com/awslabs/aws-c-sdkutils
 RUN cmake \
-    -DCMAKE_PREFIX_PATH=/usr \
+    "-DCMAKE_PREFIX_PATH=/opt/aws-lc;/usr" \
     -DCMAKE_INSTALL_PREFIX=/usr \
     -DBUILD_TESTING=0 \
     -S aws-c-sdkutils \
@@ -76,7 +96,7 @@ RUN cmake --build aws-c-sdkutils/build --parallel $(nproc) --target install
 # AWS-C-CAL
 RUN git clone --depth 1 -b v0.5.18 https://github.com/awslabs/aws-c-cal.git
 RUN cmake \
-    -DCMAKE_PREFIX_PATH=/usr \
+    "-DCMAKE_PREFIX_PATH=/opt/aws-lc;/usr" \
     -DCMAKE_INSTALL_PREFIX=/usr \
     -DBUILD_TESTING=0 \
     -S aws-c-cal \
@@ -87,7 +107,7 @@ RUN cmake --build aws-c-cal/build --parallel $(nproc) --target install
 RUN git clone --depth 1 -b v0.11.0 https://github.com/awslabs/aws-c-io.git
 RUN cmake \
     -DUSE_VSOCK=1 \
-    -DCMAKE_PREFIX_PATH=/usr \
+    "-DCMAKE_PREFIX_PATH=/opt/aws-lc;/usr" \
     -DCMAKE_INSTALL_PREFIX=/usr \
     -DBUILD_TESTING=0 \
     -S aws-c-io \
@@ -97,7 +117,7 @@ RUN cmake --build aws-c-io/build --parallel $(nproc) --target install
 # AWS-C-COMPRESSION
 RUN git clone --depth 1 -b v0.2.14 https://github.com/awslabs/aws-c-compression.git
 RUN cmake \
-    -DCMAKE_PREFIX_PATH=/usr \
+    "-DCMAKE_PREFIX_PATH=/opt/aws-lc;/usr" \
     -DCMAKE_INSTALL_PREFIX=/usr \
     -DBUILD_TESTING=0 \
     -S aws-c-compression \
@@ -107,7 +127,7 @@ RUN cmake --build aws-c-compression/build --parallel $(nproc) --target install
 # AWS-C-HTTP
 RUN git clone --depth 1 -b v0.6.19 https://github.com/awslabs/aws-c-http.git
 RUN cmake \
-    -DCMAKE_PREFIX_PATH=/usr \
+    "-DCMAKE_PREFIX_PATH=/opt/aws-lc;/usr" \
     -DCMAKE_INSTALL_PREFIX=/usr \
     -DBUILD_TESTING=0 \
     -S aws-c-http \
@@ -117,7 +137,7 @@ RUN cmake --build aws-c-http/build --parallel $(nproc) --target install
 # AWS-C-AUTH
 RUN git clone --depth 1 -b v0.6.15 https://github.com/awslabs/aws-c-auth.git
 RUN cmake \
-    -DCMAKE_PREFIX_PATH=/usr \
+    "-DCMAKE_PREFIX_PATH=/opt/aws-lc;/usr" \
     -DCMAKE_INSTALL_PREFIX=/usr \
     -DBUILD_TESTING=0 \
     -S aws-c-auth \
@@ -127,7 +147,7 @@ RUN cmake --build aws-c-auth/build --parallel $(nproc) --target install
 # JSON-C library
 RUN git clone --depth 1 -b json-c-0.18-20240915 https://github.com/json-c/json-c.git
 RUN cmake \
-    -DCMAKE_PREFIX_PATH=/usr \
+    "-DCMAKE_PREFIX_PATH=/opt/aws-lc;/usr" \
     -DCMAKE_INSTALL_PREFIX=/usr \
     -DBUILD_TESTING=0 \
     -S json-c \
@@ -145,12 +165,13 @@ RUN cd aws-nitro-enclaves-nsm-api \
 # AWS Nitro Enclaves SDK
 RUN git clone --depth 1 -b v0.4.3 "https://github.com/aws/aws-nitro-enclaves-sdk-c"
 RUN cmake \
-    -DCMAKE_PREFIX_PATH=/usr \
+    "-DCMAKE_PREFIX_PATH=/opt/aws-lc;/usr" \
     -DCMAKE_INSTALL_PREFIX=/usr \
     -DBUILD_TESTING=0 \
     -S aws-nitro-enclaves-sdk-c \
     -B aws-nitro-enclaves-sdk-c/build
 RUN cmake --build aws-nitro-enclaves-sdk-c/build --parallel $(nproc) --target install
+RUN cp /opt/aws-lc/lib/libcrypto.a /opt/aws-lc/lib/libaws_lc_0_35_0_crypto.a
 
 ####################################################################################################
 ## Chef image - based on kmstool to have all libraries available
