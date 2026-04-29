@@ -751,6 +751,27 @@ mod tests {
         Ok(())
     }
 
+    #[test]
+    fn test_verify_attested_signature_accepts_real_world_android_assertion_sample() -> Result<()> {
+        let client_data_utf8 = "{\"type\":\"android-attestation-assertion\",\"keyId\":\"attest_1777428791136\",\"issuedAt\":1777428987408,\"nonce\":\"18c182a77a18334d5a697c242d48\"}";
+        let payload_base64 = "eyJ0eXBlIjoiYW5kcm9pZC1hdHRlc3RhdGlvbi1hc3NlcnRpb24iLCJrZXlJZCI6ImF0dGVzdF8xNzc3NDI4NzkxMTM2IiwiaXNzdWVkQXQiOjE3Nzc0Mjg5ODc0MDgsIm5vbmNlIjoiMThjMTgyYTc3YTE4MzM0ZDVhNjk3YzI0MmQ0OCJ9";
+        let public_key_base64 = "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEtd6pNWA+gp90Y0O4cLn2tJyc68YzQnYyf+FZoXwFvfxQLFr8oAf0d+f9dGgam+NeyL64XqfyaF4yqTxXRWrUXw==";
+        let signature_base64 = "MEYCIQC+MDgKZVrQumFGaQyira+soE46JfsTZbZYOYjZqof9jgIhAPWwBXc+M7lpaGdoxg58sAlasXR9PFQGsD35lqW4rtRA";
+
+        let payload = STANDARD.decode(payload_base64)?;
+        assert_eq!(payload, client_data_utf8.as_bytes());
+
+        let public_key_spki_der = STANDARD.decode(public_key_base64)?;
+        let signature_der = STANDARD.decode(signature_base64)?;
+
+        assert!(verify_attested_signature(
+            &public_key_spki_der,
+            client_data_utf8.as_bytes(),
+            &signature_der
+        )?);
+        Ok(())
+    }
+
     pub fn verify_real_world_sample(attestation_path: &str) -> Result<()> {
         let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("src")
