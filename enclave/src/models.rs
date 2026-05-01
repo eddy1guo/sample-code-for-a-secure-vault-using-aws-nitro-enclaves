@@ -107,8 +107,8 @@ pub struct EnclaveRequest<T> {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WalletSignRequest {
     /// encrypted data,contain client pubkey and identity key  on chain
-    pub encrypted_payload: String,
-    pub signature: String,
+    pub verified_wallet_key: String,
+    pub sig: String,
     //txid
     pub message: String,
     pub nonce: String,
@@ -118,11 +118,11 @@ pub struct WalletSignRequest {
 impl EnclaveRequest<WalletSignRequest> {
     pub fn validate(&self) -> Result<()> {
         // Validate vault_id is non-empty
-        if self.request.encrypted_payload.is_empty() {
+        if self.request.verified_wallet_key.is_empty() {
             bail!("vault_id cannot be empty");
         }
 
-        if !is_nitro_debug_mode()? && self.request.signature.is_empty() {
+        if !is_nitro_debug_mode()? && self.request.sig.is_empty() {
             bail!("in product mode,signature can't be none");
         }
 
@@ -160,7 +160,7 @@ impl EnclaveRequest<WalletSignRequest> {
         //2) check tee client signature by tee pubkey
         let tee_client = wallet_bond.clone().into_tee_client();
         if !is_nitro_debug_mode()? {
-            verify_attested_signature(tee_client, &self.request.nonce, &self.request.signature)?;
+            verify_attested_signature(tee_client, &self.request.nonce, &self.request.sig)?;
         }
         let wallet_prikey_bytes = wallet_bond.wallet_prikey.decode_bs58()?;
         println!(
@@ -176,7 +176,8 @@ impl EnclaveRequest<WalletSignRequest> {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CreateWalletKeyRequest {
-    pub encrypted_client_data: String,
+    //json string of tee client
+    pub verified_client: String,
     pub sig: String,
     pub nonce: String,
     pub key_id: String,

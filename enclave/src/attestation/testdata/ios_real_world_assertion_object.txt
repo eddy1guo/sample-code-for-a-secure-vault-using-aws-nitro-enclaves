@@ -1,0 +1,9 @@
+{
+  "kind": "ios-app-attest-assertion",
+  "version": 1,
+  "keyId": "LnxoVdHGe+HnCcwS7FCWJecITXf2KlJBoHO7/Jr4DFI=",
+  "clientDataUtf8": "{\"type\":\"appattest-assertion\",\"keyId\":\"LnxoVdHGe+HnCcwS7FCWJecITXf2KlJBoHO7/Jr4DFI=\",\"issuedAt\":1777519926136,\"nonce\":\"9f49675d75d76870b14c6a48ed5c\"}",
+  "clientDataHashBase64": "f2Nxul6M9BtJGLUyBIT7aqzAyUcI1UR7MFfEbn3iYAc=",
+  "assertionObjectBase64": "omlzaWduYXR1cmVYRzBFAiEAlkA9FoOfCUKq5FAzvTuruyGeMuPjD24+gGuqyg1cbBkCICPaw29v8xpKFioWmdZawQpd0bqEFSyG6dgoOkCj9IvHcWF1dGhlbnRpY2F0b3JEYXRhWCXEs0tix6Tbce3qWrXnFf3e27PwmYvxaDd75toudsrGUUAAAAAB",
+  "note": "Apple App Attest assertionObject（CBOR，Base64）。服务端应使用已验证 attestation 提取出的公钥、同一 appId，以及 SHA256(clientDataUtf8) 来校验签名和 counter。"
+}

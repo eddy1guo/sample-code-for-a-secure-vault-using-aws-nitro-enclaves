@@ -2211,6 +2211,8 @@ dependencies = [
  "proptest",
  "serde",
  "serde_json",
+ "strum",
+ "strum_macros",
  "thiserror 2.0.17",
  "tokio",
  "tokio-test",

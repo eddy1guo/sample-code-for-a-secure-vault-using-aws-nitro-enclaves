@@ -22,7 +22,8 @@ use crate::constants;
 use crate::errors::AppError;
 use crate::models::{
     Credential, EnclaveAction, EnclaveDescribeInfo, EnclaveRequest, EnclaveResponse,
-    EnclaveRunInfo, ParentRequest, ParentResponse,
+    EnclaveRunInfo, ParentRequest, ParentResponse, TeeClientRegisterRequest,
+    TeeClientRegisterResponse,
 };
 
 use crate::models::CreateWalletKeyRequest;
@@ -164,7 +165,7 @@ pub async fn decrypt(
     let enclaves_ref = state.enclaves.clone();
     let port = constants::ENCLAVE_PORT;
     let response: EnclaveResponse =
-        tokio::task::spawn_blocking(move || enclaves_ref.decrypt(cid, port, request))
+        tokio::task::spawn_blocking(move || enclaves_ref.call_enclave(cid, port, request))
             .await
             .map_err(|e| {
                 tracing::error!("[parent] spawn_blocking task failed: {:?}", e);
@@ -233,7 +234,7 @@ pub async fn create_wallet_key(
     let port = constants::ENCLAVE_PORT;
     //enclaves_ref.decrypt 这个具有误导性质，不过不要紧，实际上没有产生业务
     let response: EnclaveResponse =
-        tokio::task::spawn_blocking(move || enclaves_ref.decrypt(cid, port, request))
+        tokio::task::spawn_blocking(move || enclaves_ref.call_enclave(cid, port, request))
             .await
             .map_err(|e| {
                 tracing::error!("[parent] spawn_blocking task failed: {:?}", e);
@@ -301,7 +302,7 @@ pub async fn wallet_sign(
     let enclaves_ref = state.enclaves.clone();
     let port = constants::ENCLAVE_PORT;
     let response: EnclaveResponse =
-        tokio::task::spawn_blocking(move || enclaves_ref.decrypt(cid, port, request))
+        tokio::task::spawn_blocking(move || enclaves_ref.call_enclave(cid, port, request))
             .await
             .map_err(|e| {
                 tracing::error!("[parent] spawn_blocking task failed: {:?}", e);
@@ -316,6 +317,74 @@ pub async fn wallet_sign(
 
     // 6. Transform enclave response to parent response format
     let response = WalletSignResponse {
+        fields: response.fields.unwrap_or_default(),
+        errors: response.errors,
+    };
+
+    Ok(Json(response))
+}
+
+#[tracing::instrument(skip(state, request))]
+pub async fn tee_client_register(
+    State(state): State<Arc<AppState>>,
+    Json(request): Json<TeeClientRegisterRequest>,
+) -> Result<Json<TeeClientRegisterResponse>, AppError> {
+    request.validate().map_err(|e| {
+        tracing::error!("[parent] validation failed: {}", e);
+        AppError::ValidationError(e.to_string())
+    })?;
+
+    // 2. Get available enclaves early to fail fast if none are available
+    let enclaves: Vec<EnclaveDescribeInfo> = state.enclaves.get_enclaves().await;
+    if enclaves.is_empty() {
+        return Err(AppError::EnclaveNotFound);
+    }
+
+    // 3. Fetch (or use cached) IAM credentials from IMDS
+    tracing::debug!("[parent] fetching credentials from cache");
+    let credential = state.credentials.get_credentials().await.map_err(|e| {
+        tracing::error!("[parent] failed to get credentials: {:?}", e);
+        e
+    })?;
+    tracing::debug!("[parent] credentials retrieved successfully");
+
+    let request = EnclaveRequest {
+        credential,
+        request,
+    };
+
+    let request = EnclaveAction::TeeClientRegister { inner: request };
+
+    // 4. Select a random enclave for load balancing
+    let index = fastrand::usize(..enclaves.len());
+    let enclave = enclaves.get(index).ok_or(AppError::EnclaveNotFound)?;
+    let cid: u32 = enclave
+        .enclave_cid
+        .try_into()
+        .map_err(|_| AppError::InternalServerError)?;
+
+    tracing::debug!("[parent] sending decrypt request to CID: {:?}", cid);
+
+    // 5. Send request to enclave via vsock (blocking operation)
+    // spawn_blocking is used because vsock I/O is synchronous
+    let enclaves_ref = state.enclaves.clone();
+    let port = constants::ENCLAVE_PORT;
+    let response: EnclaveResponse =
+        tokio::task::spawn_blocking(move || enclaves_ref.call_enclave(cid, port, request))
+            .await
+            .map_err(|e| {
+                tracing::error!("[parent] spawn_blocking task failed: {:?}", e);
+                AppError::InternalServerError
+            })?
+            .map_err(|e| {
+                tracing::error!("[parent] enclave decrypt failed: {:?}", e);
+                e
+            })?;
+
+    tracing::debug!("[parent] received response from CID: {:?}", cid);
+
+    // 6. Transform enclave response to parent response format
+    let response = TeeClientRegisterResponse {
         fields: response.fields.unwrap_or_default(),
         errors: response.errors,
     };

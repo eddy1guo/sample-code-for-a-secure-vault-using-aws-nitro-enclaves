@@ -189,7 +189,7 @@ impl Enclaves {
     /// This method is synchronous and should be called via
     /// `tokio::task::spawn_blocking` from async context.
     #[tracing::instrument(skip(self, payload))]
-    pub fn decrypt(
+    pub fn call_enclave(
         &self,
         cid: u32,
         port: u32,

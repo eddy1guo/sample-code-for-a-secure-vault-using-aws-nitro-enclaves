@@ -352,7 +352,17 @@ pub fn verify_assertion(
 
     let signature = EcdsaSig::from_der(assertion.signature.as_slice())?;
     let ec_public_key = public_key.ec_key()?;
-    if !signature.verify(&nonce, &ec_public_key)? {
+    let direct_digest_valid = signature.verify(&nonce, &ec_public_key)?;
+    //直接校验 SHA256(authenticatorData || clientDataHash)”路径；如果失败，再走一层前端/WebCrypto 兼容路径，把这个
+    //nonce 当作消息交给 ECDSA-SHA256 验证器
+    let frontend_compatible_valid = if direct_digest_valid {
+        false
+    } else {
+        // Some frontend/WebCrypto flows first compute SHA256(authenticatorData || clientDataHash)
+        // and then pass that digest into an ES256 verifier, which hashes once more internally.
+        verify_attested_signature(public_key_spki_der, &nonce, assertion.signature.as_slice())?
+    };
+    if !direct_digest_valid && !frontend_compatible_valid {
         bail!("App Attest assertion signature verification failed");
     }
 
@@ -694,7 +704,7 @@ impl RealWorldSample {
             APPLE_APP_ATTEST_ROOT_CA_PEM.as_bytes(),
         )?;
 
-        assert_eq!(verified.environment, AppAttestEnvironment::Production);
+        assert_eq!(verified.environment, AppAttestEnvironment::Development);
         assert_eq!(verified.counter, 0);
         assert!(verified.receipt.is_some());
         assert_eq!(verified.key_id, self.key_id.decode_bs64()?);
@@ -717,6 +727,9 @@ struct ClientData {
 
 #[cfg(test)]
 mod tests {
+    use crate::codec::bs64::EncodeBs64;
+    use crate::codec::hex::DecodeHex;
+
     use super::*;
     use base64::engine::general_purpose::{STANDARD, URL_SAFE_NO_PAD};
     use openssl::asn1::{Asn1Object, Asn1OctetString, Asn1Time};
@@ -752,6 +765,22 @@ mod tests {
         signature: ByteBuf,
         #[serde(rename = "authenticatorData")]
         authenticator_data: ByteBuf,
+    }
+
+    #[derive(Deserialize)]
+    struct RealWorldAssertionSample {
+        /// 客户端 `generateKey()` 返回的 keyId，应与已验证 attestation 的 keyId 相同。
+        #[serde(rename = "keyId")]
+        key_id: String,
+        /// 业务层自定义 clientData JSON 字符串。
+        #[serde(rename = "clientDataUtf8")]
+        client_data_utf8: String,
+        /// `SHA256(clientDataUtf8)` 的 Base64。
+        #[serde(rename = "clientDataHashBase64")]
+        client_data_hash_base64: String,
+        /// Apple 返回的 assertion object，CBOR 二进制后再 Base64。
+        #[serde(rename = "assertionObjectBase64")]
+        assertion_object_base64: String,
     }
 
     #[test]
@@ -896,7 +925,7 @@ mod tests {
             APPLE_APP_ATTEST_ROOT_CA_PEM.as_bytes(),
         )?;
 
-        assert_eq!(verified.environment, AppAttestEnvironment::Production);
+        assert_eq!(verified.environment, AppAttestEnvironment::Development);
         assert_eq!(verified.counter, 0);
         assert!(verified.receipt.is_some());
         assert_eq!(verified.key_id, STANDARD.decode(&sample.key_id)?);
@@ -922,7 +951,7 @@ mod tests {
         )?;
 
         assert_eq!(parsed.fmt, APPLE_APP_ATTEST_FORMAT);
-        assert_eq!(parsed.environment, AppAttestEnvironment::Production);
+        assert_eq!(parsed.environment, AppAttestEnvironment::Development);
         assert_eq!(parsed.counter, 0);
         assert_eq!(parsed.credential_id_base64, sample.key_id);
         assert!(parsed.public_key_matches_certificate);
@@ -1004,27 +1033,112 @@ mod tests {
     }
 
     #[test]
-    fn test_verify_assertion_rejects_current_real_ios_app_attest_sample_inputs() -> Result<()> {
-        let key_id = "nThQwiP+HradRyKn+z3swgfJSLceU1obrhKW3qUOEnE=";
-        let client_data_utf8 = "{\"type\":\"appattest-assertion\",\"keyId\":\"nThQwiP+HradRyKn+z3swgfJSLceU1obrhKW3qUOEnE=\",\"issuedAt\":1777261702944,\"nonce\":\"ec85dd8ac44e28562a35ee37fb8\"}";
-        let client_data_hash_base64 = "+2DTQXAUzN//ymEY5auL/OjhslHpWioaJkxhmDY2eMw=";
-        let assertion_object_base64 = "omlzaWduYXR1cmVYRjBEAiAIkiTwQwIqF/ccMt86+Jap57jy2sVx6MqNYImEhMKvswIgGUxiTZlDBXWoaUJJoHLg51sshT8cJc6yo8VYHsrXBoBxYXV0aGVudGljYXRvckRhdGFYJcSzS2LHpNtx7epatecV/d7bs/CZi/FoN3vm2i52ysZRQAAAAAE=";
-        let public_key_spki_der_base64 = "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE/ZLnrdo5WjjI/wf8jSVKsUBoC4YVasOiE87nRkpKhb1mtAuCQmB7FlCgpJzkWmyZPut/fsyYerGFCUvjWme9tg==";
+    fn test_verify_assertion_accepts_current_real_world_sample_with_frontend_compatibility()
+    -> Result<()> {
+        let attestation: RealWorldSample = serde_json::from_str(include_str!(
+            "./testdata/ios_real_world_attestation_object.txt"
+        ))?;
+        let assertion: RealWorldAssertionSample = serde_json::from_str(include_str!(
+            "./testdata/ios_real_world_assertion_object.txt"
+        ))?;
 
-        let expected_client_data_hash = sha256_bytes(client_data_utf8.as_bytes());
-        let provided_client_data_hash = STANDARD.decode(client_data_hash_base64)?;
-        assert_eq!(expected_client_data_hash, provided_client_data_hash);
+        assert_eq!(assertion.key_id, attestation.key_id);
 
-        let err = verify_assertion_base64(
-            assertion_object_base64,
-            public_key_spki_der_base64,
+        let attestation_client_data_hash = STANDARD.decode(&attestation.client_data_hash_base64)?;
+        assert_eq!(
+            attestation_client_data_hash,
+            sha256_bytes(attestation.client_data_utf8.as_bytes())
+        );
+
+        let attestation_object = STANDARD.decode(&attestation.attestation_object_base64)?;
+        let verified_attestation = verify_attestation(
+            &attestation_object,
             REAL_SAMPLE_APP_ID,
-            client_data_hash_base64,
-            Some(0),
-        )
-        .unwrap();
+            &attestation.key_id,
+            &attestation_client_data_hash,
+            APPLE_APP_ATTEST_ROOT_CA_PEM.as_bytes(),
+        )?;
 
-        assert_eq!(key_id, "nThQwiP+HradRyKn+z3swgfJSLceU1obrhKW3qUOEnE=");
+        let assertion_client_data_hash = STANDARD.decode(&assertion.client_data_hash_base64)?;
+        assert_eq!(
+            assertion_client_data_hash,
+            sha256_bytes(assertion.client_data_utf8.as_bytes())
+        );
+
+        let assertion_object = STANDARD.decode(&assertion.assertion_object_base64)?;
+        let parsed_assertion = parse_assertion_object(&assertion_object)?;
+        let auth_data =
+            parse_assertion_authenticator_data(parsed_assertion.authenticator_data.as_slice())?;
+        let expected_rp_id_hash = sha256_bytes(REAL_SAMPLE_APP_ID.as_bytes());
+        assert_eq!(
+            auth_data.rp_id_hash.as_slice(),
+            expected_rp_id_hash.as_slice()
+        );
+        assert_eq!(auth_data.counter, 1);
+
+        let mut nonce_input = Vec::with_capacity(
+            parsed_assertion.authenticator_data.len() + assertion_client_data_hash.len(),
+        );
+        nonce_input.extend_from_slice(parsed_assertion.authenticator_data.as_slice());
+        nonce_input.extend_from_slice(&assertion_client_data_hash);
+        let nonce = sha256_bytes(&nonce_input);
+
+        let public_key = PKey::public_key_from_der(&verified_attestation.public_key_spki_der)?;
+        let ec_public_key = public_key.ec_key()?;
+        let signature = EcdsaSig::from_der(parsed_assertion.signature.as_slice())?;
+        assert!(!signature.verify(&nonce, &ec_public_key)?);
+
+        // This matches the common frontend/WebCrypto pattern:
+        // verify ES256 over the already-hashed nonce, which adds another SHA-256.
+        assert!(verify_attested_signature(
+            &verified_attestation.public_key_spki_der,
+            &nonce,
+            parsed_assertion.signature.as_slice(),
+        )?);
+
+        let verified_assertion = verify_assertion(
+            &assertion_object,
+            &verified_attestation.public_key_spki_der,
+            REAL_SAMPLE_APP_ID,
+            &assertion_client_data_hash,
+            Some(verified_attestation.counter),
+        )?;
+
+        assert_eq!(verified_attestation.counter, 0);
+        assert_eq!(verified_assertion.counter, 1);
+        Ok(())
+    }
+
+    #[test]
+    fn test_verify_attested_signature_rejects_current_real_ios_sample_with_attestation_pubkey()
+    -> Result<()> {
+        let key_id = "69XsNczVesfrD3W87ZNuig3HxifvwKsv352BqSFEMW8=";
+        let public_key_spki_der_base64 = "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE/UXhFba4E/qlmhA31KxQALhKCK/CkAHIiS+J+ekMPIny9TalboTGgZJ5raYO9U7vA0uZ5+sQgD2KkaU4/+H90w==";
+        let client_data_utf8 = "{\"type\":\"ios-sign-assertion\",\"keyId\":\"69XsNczVesfrD3W87ZNuig3HxifvwKsv352BqSFEMW8=\",\"issuedAt\":1777513207846,\"nonce\":\"27697292cbec3ad686a0a092f87\"}";
+        let payload_base64 = "eyJ0eXBlIjoiaW9zLXNpZ24tYXNzZXJ0aW9uIiwia2V5SWQiOiI2OVhzTmN6VmVzZnJEM1c4N1pOdWlnM0h4aWZ2d0tzdjM1MkJxU0ZFTVc4PSIsImlzc3VlZEF0IjoxNzc3NTEzMjA3ODQ2LCJub25jZSI6IjI3Njk3MjkyY2JlYzNhZDY4NmEwYTA5MmY4NyJ9";
+        let signature_base64 = "MEQCIBvpWLm/o1jW12zwayvRv8/Jhdb/uuZ2eAsKLRGR7jiNAiBNNLBUG1OANtZHTp6fJn/3XajszB8JPbg54JG2L8t6nw==";
+
+        let payload = STANDARD.decode(payload_base64)?;
+        assert_eq!(payload, client_data_utf8.as_bytes());
+
+        let public_key_spki_der = STANDARD.decode(public_key_spki_der_base64)?;
+        let signature_der = STANDARD.decode(signature_base64)?;
+
+        let high_level_verified = verify_attested_signature(
+            &public_key_spki_der,
+            client_data_utf8.as_bytes(),
+            &signature_der,
+        )?;
+
+        let public_key = PKey::public_key_from_der(&public_key_spki_der)?;
+        let ec_public_key = public_key.ec_key()?;
+        let signature = EcdsaSig::from_der(&signature_der)?;
+        let low_level_verified =
+            signature.verify(&sha256_bytes(client_data_utf8.as_bytes()), &ec_public_key)?;
+
+        assert_eq!(key_id, "69XsNczVesfrD3W87ZNuig3HxifvwKsv352BqSFEMW8=");
+        assert!(!high_level_verified);
+        assert!(!low_level_verified);
         Ok(())
     }
 

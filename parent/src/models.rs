@@ -322,6 +322,11 @@ pub enum EnclaveAction {
         #[serde(flatten)]
         inner: EnclaveRequest<CreateWalletKeyRequest>,
     },
+    #[serde(rename = "tee_client_register")]
+    TeeClientRegister {
+        #[serde(flatten)]
+        inner: EnclaveRequest<TeeClientRegisterRequest>,
+    },
 }
 
 /// Response received from the enclave over vsock.
@@ -340,11 +345,10 @@ pub struct EnclaveResponse {
 pub struct WalletSignRequest {
     /// HPKE encrypted private key, hex encoded.
     #[validate(length(min = 1, max = "MAX_ENCRYPTED_KEY_LENGTH"))]
-    pub encrypted_private_key: String,
-
+    pub verified_wallet_key: String,
+    pub sig: String,
     #[validate(length(min = 1, max = 1000000000))]
     pub message: String,
-
     #[validate(length(min = 1, max = 1000000000))]
     pub nonce: String,
     pub region: String,
@@ -363,6 +367,8 @@ pub struct WalletSignResponse {
 #[derive(Debug, Clone, Serialize, Deserialize, Validate)]
 pub struct CreateWalletKeyRequest {
     #[validate(length(min = 1, max = 1000000000))]
+    pub verified_client: String,
+    pub sig: String,
     pub nonce: String,
     pub region: String,
     pub key_id: String,
@@ -370,6 +376,32 @@ pub struct CreateWalletKeyRequest {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CreateWalletKeyResponse {
+    /// Map of field names to decrypted values.
+    pub fields: BTreeMap<String, Value>,
+
+    /// Optional list of errors encountered during decryption.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub errors: Option<Vec<String>>,
+}
+
+use strum_macros::{Display, EnumString};
+#[derive(Deserialize, Serialize, Debug, Display, EnumString, PartialEq, Eq, Clone)]
+pub enum Platform {
+    Apple,
+    Google,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Validate)]
+pub struct TeeClientRegisterRequest {
+    pub attestation_doc: String,
+    pub platform: Platform,
+    pub nonce: String,
+    pub key_id: String,
+    pub region: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TeeClientRegisterResponse {
     /// Map of field names to decrypted values.
     pub fields: BTreeMap<String, Value>,
 
