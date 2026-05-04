@@ -1,7 +1,7 @@
 // Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: MIT-0
 
-pub mod attestation;
+pub mod credential;
 pub mod aws_ne;
 pub mod codec;
 pub mod constants;

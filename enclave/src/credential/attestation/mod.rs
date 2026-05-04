@@ -1,14 +1,8 @@
-use crate::{
-    attestation::common::{Platform, TeeClient},
-    codec::{bs64::DecodeBs64, hex::DecodeHex},
-};
-use anyhow::Result;
-
-pub mod common;
-
 pub mod apple;
-pub mod aws;
 pub mod google;
+
+use crate::credential::common::Platform;
+use anyhow::Result;
 
 pub enum Attestation {
     Google(google::RealWorldSample),
@@ -47,23 +41,5 @@ impl Attestation {
             Attestation::Apple(sample) => sample.pubkey()?,
         };
         Ok(key)
-    }
-}
-
-pub fn verify_attested_signature(
-    client: TeeClient,
-    message: &str,
-    signature: &str,
-) -> anyhow::Result<bool> {
-    let public_key_spki_der = client.pubkey.decode_bs64()?;
-    let message = message.as_bytes();
-    let signature_der = signature.decode_hex()?;
-    match client.platform {
-        Platform::Apple => {
-            apple::verify_attested_signature(&public_key_spki_der, message, &signature_der)
-        }
-        Platform::Google => {
-            google::verify_attested_signature(&public_key_spki_der, message, &signature_der)
-        }
     }
 }

@@ -22,10 +22,10 @@ use std::collections::HashMap;
 use std::fmt;
 use std::sync::Mutex;
 
-use anyhow::{Error, Result, anyhow, bail};
+use anyhow::{anyhow, bail, Error, Result};
 use aws_lc_rs::signature::{
-    ECDSA_P256_SHA256_ASN1_SIGNING, ECDSA_P384_SHA384_ASN1_SIGNING, ECDSA_P521_SHA512_ASN1_SIGNING,
-    EcdsaSigningAlgorithm,
+    EcdsaSigningAlgorithm, ECDSA_P256_SHA256_ASN1_SIGNING, ECDSA_P384_SHA384_ASN1_SIGNING,
+    ECDSA_P521_SHA512_ASN1_SIGNING,
 };
 use data_encoding::HEXLOWER;
 use ed25519_dalek::Keypair;
@@ -36,22 +36,23 @@ use rustls::crypto::aws_lc_rs::hpke::{
 };
 use rustls::crypto::hpke::Hpke;
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
+use serde_json::{json, Value};
 use zeroize::ZeroizeOnDrop;
 
-use crate::attestation::aws::{get_attestation_document, is_nitro_debug_mode};
-use crate::attestation::common::{Platform, TeeClient, Usage, WalletKeyBond};
-use crate::attestation::{Attestation, verify_attested_signature};
 use crate::codec::bs58::{DecodeBs58, EncodeBs58};
 use crate::codec::hex::{DecodeHex, EncodeHex};
 use crate::codec::json::JsonSerialize;
 use crate::constants::{ENCODING_BINARY, ENCODING_HEX, MAX_FIELDS, P256, P384, P521};
+use crate::credential::assertion::verify_attested_signature;
+use crate::credential::attestation::Attestation;
+use crate::credential::aws::{get_attestation_document, is_nitro_debug_mode};
+use crate::credential::common::{Platform, TeeClient, Usage, WalletKeyBond};
 
 use crate::ed25519::{self, new_key_pair};
 use crate::hpke::decrypt_value;
 use crate::kms::{
-    SecureHpkePrivateKey, call_kms_encrypt, get_secret_key, get_tee_client, get_wallet_key_bond,
-    get_wallet_private_key,
+    call_kms_encrypt, get_secret_key, get_tee_client, get_wallet_key_bond, get_wallet_private_key,
+    SecureHpkePrivateKey,
 };
 use crate::utils::base64_decode;
 
@@ -179,6 +180,7 @@ pub struct CreateWalletKeyRequest {
     //json string of tee client
     pub verified_client: String,
     pub sig: String,
+    pub expires: u64,
     pub nonce: String,
     pub key_id: String,
     pub region: String,
@@ -198,10 +200,17 @@ impl EnclaveRequest<CreateWalletKeyRequest> {
         .map_err(|err| anyhow!("failed to call KMS:call_kms_encrypt: {err:?}"))
     }
     pub fn create(&self) -> Result<(String, String)> {
+        //todo: verify nonce
         //先验证tee密钥的签名
         let client = get_tee_client(&self)?;
         if !is_nitro_debug_mode()? {
-            verify_attested_signature(client.clone(), &self.request.nonce, &self.request.sig)?;
+            let msg = json!({
+                "type": "CreateWalletKey",
+                "expires": self.request.expires,
+                "nonce": self.request.nonce
+            })
+            .to_string();
+            verify_attested_signature(client.clone(), &msg, &self.request.sig)?;
         }
         let key_pair = new_key_pair();
         let wallet_prikey = key_pair.0.encode_bs58();
@@ -226,6 +235,7 @@ impl EnclaveRequest<CreateWalletKeyRequest> {
 pub struct TeeClientRegisterRequest {
     pub attestation_doc: String,
     pub platform: Platform,
+    pub expires: u64,
     pub nonce: String,
     pub key_id: String,
     pub region: String,
@@ -244,7 +254,10 @@ impl EnclaveRequest<TeeClientRegisterRequest> {
     }
     //fix algorithm with ECDSA_P256_SHA256_ASN1_SIGNING
     pub fn encrypt_tee_client(&self) -> Result<String> {
+        //todo: verify nonce if repeatable
+
         let attestation = self.attestation()?;
+
         attestation.verify()?;
         let pubkey = attestation.pubkey()?;
         let tee_client = TeeClient {
@@ -818,12 +831,10 @@ mod tests {
         let invalid_b64 = "aW52YWxpZA=="; // "invalid" in base64
         let result: Result<Suite> = invalid_b64.try_into();
         assert!(result.is_err());
-        assert!(
-            result
-                .unwrap_err()
-                .to_string()
-                .contains("unknown suite identifier")
-        );
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("unknown suite identifier"));
     }
 
     #[test]

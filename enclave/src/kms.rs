@@ -21,7 +21,7 @@ use aws_lc_rs::signature::{EcdsaKeyPair, EcdsaSigningAlgorithm};
 use rustls::crypto::hpke::HpkePrivateKey;
 use zeroize::{Zeroize, Zeroizing};
 
-use crate::attestation::common::{TeeClient, Usage, WalletKeyBond};
+use crate::credential::common::{TeeClient, Usage, WalletKeyBond};
 use crate::aws_ne;
 use crate::codec::bs58::{DecodeBs58, EncodeBs58};
 use crate::codec::bs64::EncodeBs64;

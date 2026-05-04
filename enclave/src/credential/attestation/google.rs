@@ -1,13 +1,9 @@
-use crate::attestation::common::{
-    DerElement, certificate_extension_value, find_context_specific, load_pem_certificates,
-    parse_der, verify_cert_chain,
-};
 use crate::codec::bs64::DecodeBs64;
-use anyhow::{Result, anyhow, bail};
-use base64::alphabet::STANDARD;
-use openssl::hash::MessageDigest;
-use openssl::pkey::PKey;
-use openssl::sign::Verifier as OpenSslVerifier;
+use crate::credential::common::{
+    certificate_extension_value, find_context_specific, load_pem_certificates, parse_der,
+    verify_cert_chain, DerElement,
+};
+use anyhow::{anyhow, bail, Result};
 use openssl::x509::X509;
 use serde::Deserialize;
 use std::collections::BTreeMap;
@@ -111,6 +107,7 @@ impl RealWorldSample {
         let requirements = KeyAttestationRequirements {
             challenge: &challenge,
             root_pems: &[],
+            //todo: 动态配置
             expected_package_name: Some("com.chainlessandroid.app"),
             expected_signature_digests: &[],
             require_hardware_backed: true,
@@ -457,20 +454,6 @@ pub fn verify_google_attestation(
     Ok(verified)
 }
 
-/// 使用 Android Key Attestation 证明出的 P-256 公钥验证 ECDSA-SHA256 签名。
-///
-/// `signature_der` 应为 ASN.1 DER / X9.62 格式。
-pub fn verify_attested_signature(
-    public_key_spki_der: &[u8],
-    message: &[u8],
-    signature_der: &[u8],
-) -> Result<bool> {
-    let public_key = PKey::public_key_from_der(public_key_spki_der)?;
-    let mut verifier = OpenSslVerifier::new(MessageDigest::sha256(), &public_key)?;
-    verifier.update(message)?;
-    Ok(verifier.verify(signature_der)?)
-}
-
 fn parse_key_description(raw: &[u8]) -> Result<KeyDescription> {
     let (sequence, rest) = parse_der(raw)?;
     if !rest.is_empty() {
@@ -614,168 +597,24 @@ fn parse_verified_boot_state(value: u64) -> Result<VerifiedBootState> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::attestation::common::sha256_bytes;
-    use base64::Engine as _;
+    use crate::credential::common::sha256_bytes;
     use base64::engine::general_purpose::STANDARD;
+    use base64::Engine as _;
     use openssl::asn1::{Asn1Object, Asn1OctetString, Asn1Time};
     use openssl::bn::BigNum;
     use openssl::ec::{EcGroup, EcKey};
     use openssl::hash::MessageDigest;
     use openssl::nid::Nid;
     use openssl::pkey::{PKey, Private};
-    use openssl::sign::Signer;
     use openssl::x509::extension::{BasicConstraints, KeyUsage};
-    use openssl::x509::{X509, X509Extension, X509NameBuilder};
-    use serde::Deserialize;
+    use openssl::x509::{X509Extension, X509NameBuilder, X509};
     use std::fs;
     use std::path::PathBuf;
 
-    #[test]
-    fn test_verify_attestation_accepts_hardware_backed_key() -> Result<()> {
-        let root_key = generate_p256_key()?;
-        let root_cert = issue_certificate("Android Root", &root_key, None, &root_key, true, &[])?;
-        let leaf_key = generate_p256_key()?;
-
-        let challenge = b"android-challenge".to_vec();
-        let signature_digest = sha256_bytes(b"signing-cert");
-        let extension = build_custom_extension(
-            ANDROID_KEY_ATTESTATION_OID,
-            &encode_key_description(
-                &challenge,
-                b"unique-id",
-                "com.example.wallet",
-                &signature_digest,
-                true,
-            ),
-        )?;
-        let leaf_cert = issue_certificate(
-            "Android Leaf",
-            &leaf_key,
-            Some(&root_cert),
-            &root_key,
-            false,
-            &[extension],
-        )?;
-
-        let chain = vec![leaf_cert.to_der()?];
-        let root_pem = root_cert.to_pem()?;
-        let requirements = KeyAttestationRequirements {
-            challenge: &challenge,
-            root_pems: &[root_pem.as_slice()],
-            expected_package_name: Some("com.example.wallet"),
-            expected_signature_digests: &[signature_digest.as_slice()],
-            require_hardware_backed: true,
-            require_verified_boot: true,
-        };
-        let verified = verify_google_attestation(&chain, &requirements, None)?;
-
-        assert_eq!(
-            verified.attestation_security_level,
-            SecurityLevel::TrustedEnvironment
-        );
-        assert_eq!(
-            verified.keymint_security_level,
-            SecurityLevel::TrustedEnvironment
-        );
-        assert_eq!(
-            verified.root_of_trust.verified_boot_state,
-            VerifiedBootState::Verified
-        );
-        assert!(verified.root_of_trust.device_locked);
-        assert_eq!(
-            verified
-                .application_id
-                .as_ref()
-                .expect("app id")
-                .package_names,
-            vec!["com.example.wallet".to_string()]
-        );
-        Ok(())
-    }
-
-    #[test]
-    fn test_verify_attestation_rejects_bad_challenge() -> Result<()> {
-        let root_key = generate_p256_key()?;
-        let root_cert = issue_certificate("Android Root", &root_key, None, &root_key, true, &[])?;
-        let leaf_key = generate_p256_key()?;
-        let extension = build_custom_extension(
-            ANDROID_KEY_ATTESTATION_OID,
-            &encode_key_description(
-                b"real-challenge",
-                b"unique-id",
-                "com.example.wallet",
-                &sha256_bytes(b"signing-cert"),
-                true,
-            ),
-        )?;
-        let leaf_cert = issue_certificate(
-            "Android Leaf",
-            &leaf_key,
-            Some(&root_cert),
-            &root_key,
-            false,
-            &[extension],
-        )?;
-
-        let chain = vec![leaf_cert.to_der()?];
-        let root_pem = root_cert.to_pem()?;
-        let requirements = KeyAttestationRequirements {
-            challenge: b"wrong-challenge",
-            root_pems: &[root_pem.as_slice()],
-            expected_package_name: None,
-            expected_signature_digests: &[],
-            require_hardware_backed: true,
-            require_verified_boot: true,
-        };
-
-        let err = verify_google_attestation(&chain, &requirements, None).unwrap_err();
-        assert!(err.to_string().contains("challenge mismatch"));
-        Ok(())
-    }
-
-    #[test]
-    fn test_verify_attested_signature_accepts_valid_signature() -> Result<()> {
-        let key = generate_p256_key()?;
-        let public_key_spki_der = key.public_key_to_der()?;
-        let message = b"google-attested-signature";
-
-        let mut signer = Signer::new(MessageDigest::sha256(), &key)?;
-        signer.update(message)?;
-        let signature = signer.sign_to_vec()?;
-
-        assert!(verify_attested_signature(
-            &public_key_spki_der,
-            message,
-            &signature
-        )?);
-        Ok(())
-    }
-
-    #[test]
-    fn test_verify_attested_signature_accepts_real_world_android_assertion_sample() -> Result<()> {
-        let client_data_utf8 = "{\"type\":\"android-attestation-assertion\",\"keyId\":\"attest_1777428791136\",\"issuedAt\":1777428987408,\"nonce\":\"18c182a77a18334d5a697c242d48\"}";
-        let payload_base64 = "eyJ0eXBlIjoiYW5kcm9pZC1hdHRlc3RhdGlvbi1hc3NlcnRpb24iLCJrZXlJZCI6ImF0dGVzdF8xNzc3NDI4NzkxMTM2IiwiaXNzdWVkQXQiOjE3Nzc0Mjg5ODc0MDgsIm5vbmNlIjoiMThjMTgyYTc3YTE4MzM0ZDVhNjk3YzI0MmQ0OCJ9";
-        let public_key_base64 = "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEtd6pNWA+gp90Y0O4cLn2tJyc68YzQnYyf+FZoXwFvfxQLFr8oAf0d+f9dGgam+NeyL64XqfyaF4yqTxXRWrUXw==";
-        let signature_base64 = "MEYCIQC+MDgKZVrQumFGaQyira+soE46JfsTZbZYOYjZqof9jgIhAPWwBXc+M7lpaGdoxg58sAlasXR9PFQGsD35lqW4rtRA";
-
-        let payload = STANDARD.decode(payload_base64)?;
-        assert_eq!(payload, client_data_utf8.as_bytes());
-
-        let public_key_spki_der = STANDARD.decode(public_key_base64)?;
-        let signature_der = STANDARD.decode(signature_base64)?;
-
-        assert!(verify_attested_signature(
-            &public_key_spki_der,
-            client_data_utf8.as_bytes(),
-            &signature_der
-        )?);
-        Ok(())
-    }
-
-    pub fn verify_real_world_sample(attestation_path: &str) -> Result<()> {
+    fn verify_real_world_sample(attestation_path: &str) -> Result<()> {
         let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("src")
-            .join("attestation")
+            .join("credential")
             .join(attestation_path);
         let file = fs::read_to_string(&path)
             .map_err(|err| anyhow!("failed to read {}: {err}", path.display()))?;
@@ -830,73 +669,186 @@ mod tests {
         Ok(())
     }
 
-    #[test]
-    fn test_all_platform_verify_attestation_accepts_real_world_sample() -> Result<()> {
-        //success
-        verify_real_world_sample("testdata/android_google_real_world_attestation_object.txt")?;
-        verify_real_world_sample("testdata/android_xiaomi_real_world_attestation_object.txt")?;
-        verify_real_world_sample("testdata/android_vivo_real_world_attestation_object.txt")?;
-        //failed
-        assert!(
-            verify_real_world_sample("testdata/android_samsung_real_world_attestation_object.txt")
-                .is_err()
-        );
-        assert!(
-            verify_real_world_sample("testdata/android_hongmeng_real_world_attestation_object.txt")
-                .is_err()
-        );
-        Ok(())
+    mod verify_attestation_cases {
+        use super::*;
+
+        #[test]
+        fn accepts_hardware_backed_key() -> Result<()> {
+            let root_key = generate_p256_key()?;
+            let root_cert =
+                issue_certificate("Android Root", &root_key, None, &root_key, true, &[])?;
+            let leaf_key = generate_p256_key()?;
+
+            let challenge = b"android-challenge".to_vec();
+            let signature_digest = sha256_bytes(b"signing-cert");
+            let extension = build_custom_extension(
+                ANDROID_KEY_ATTESTATION_OID,
+                &encode_key_description(
+                    &challenge,
+                    b"unique-id",
+                    "com.example.wallet",
+                    &signature_digest,
+                    true,
+                ),
+            )?;
+            let leaf_cert = issue_certificate(
+                "Android Leaf",
+                &leaf_key,
+                Some(&root_cert),
+                &root_key,
+                false,
+                &[extension],
+            )?;
+
+            let chain = vec![leaf_cert.to_der()?];
+            let root_pem = root_cert.to_pem()?;
+            let requirements = KeyAttestationRequirements {
+                challenge: &challenge,
+                root_pems: &[root_pem.as_slice()],
+                expected_package_name: Some("com.example.wallet"),
+                expected_signature_digests: &[signature_digest.as_slice()],
+                require_hardware_backed: true,
+                require_verified_boot: true,
+            };
+            let verified = verify_google_attestation(&chain, &requirements, None)?;
+
+            assert_eq!(
+                verified.attestation_security_level,
+                SecurityLevel::TrustedEnvironment
+            );
+            assert_eq!(
+                verified.keymint_security_level,
+                SecurityLevel::TrustedEnvironment
+            );
+            assert_eq!(
+                verified.root_of_trust.verified_boot_state,
+                VerifiedBootState::Verified
+            );
+            assert!(verified.root_of_trust.device_locked);
+            assert_eq!(
+                verified
+                    .application_id
+                    .as_ref()
+                    .expect("app id")
+                    .package_names,
+                vec!["com.example.wallet".to_string()]
+            );
+            Ok(())
+        }
+
+        #[test]
+        fn rejects_bad_challenge() -> Result<()> {
+            let root_key = generate_p256_key()?;
+            let root_cert =
+                issue_certificate("Android Root", &root_key, None, &root_key, true, &[])?;
+            let leaf_key = generate_p256_key()?;
+            let extension = build_custom_extension(
+                ANDROID_KEY_ATTESTATION_OID,
+                &encode_key_description(
+                    b"real-challenge",
+                    b"unique-id",
+                    "com.example.wallet",
+                    &sha256_bytes(b"signing-cert"),
+                    true,
+                ),
+            )?;
+            let leaf_cert = issue_certificate(
+                "Android Leaf",
+                &leaf_key,
+                Some(&root_cert),
+                &root_key,
+                false,
+                &[extension],
+            )?;
+
+            let chain = vec![leaf_cert.to_der()?];
+            let root_pem = root_cert.to_pem()?;
+            let requirements = KeyAttestationRequirements {
+                challenge: b"wrong-challenge",
+                root_pems: &[root_pem.as_slice()],
+                expected_package_name: None,
+                expected_signature_digests: &[],
+                require_hardware_backed: true,
+                require_verified_boot: true,
+            };
+
+            let err = verify_google_attestation(&chain, &requirements, None).unwrap_err();
+            assert!(err.to_string().contains("challenge mismatch"));
+            Ok(())
+        }
+
+        #[test]
+        fn accepts_supported_real_world_samples_and_rejects_known_failures() -> Result<()> {
+            verify_real_world_sample("testdata/android_google_real_world_attestation_object.txt")?;
+            verify_real_world_sample("testdata/android_xiaomi_real_world_attestation_object.txt")?;
+            verify_real_world_sample("testdata/android_vivo_real_world_attestation_object.txt")?;
+
+            assert!(verify_real_world_sample(
+                "testdata/android_samsung_real_world_attestation_object.txt"
+            )
+            .is_err());
+            assert!(verify_real_world_sample(
+                "testdata/android_hongmeng_real_world_attestation_object.txt"
+            )
+            .is_err());
+            Ok(())
+        }
     }
 
-    #[test]
-    fn test_check_revocation_status_rejects_revoked_leaf_serial() -> Result<()> {
-        let root_key = generate_p256_key()?;
-        let root_cert = issue_certificate("Android Root", &root_key, None, &root_key, true, &[])?;
-        let leaf_key = generate_p256_key()?;
+    mod check_revocation_status_cases {
+        use super::*;
 
-        let extension = build_custom_extension(
-            ANDROID_KEY_ATTESTATION_OID,
-            &encode_key_description(
-                b"android-challenge",
-                b"unique-id",
-                "com.example.wallet",
-                &sha256_bytes(b"signing-cert"),
-                true,
-            ),
-        )?;
-        let leaf_cert = issue_certificate(
-            "Android Leaf",
-            &leaf_key,
-            Some(&root_cert),
-            &root_key,
-            false,
-            &[extension],
-        )?;
+        #[test]
+        fn rejects_revoked_leaf_serial() -> Result<()> {
+            let root_key = generate_p256_key()?;
+            let root_cert =
+                issue_certificate("Android Root", &root_key, None, &root_key, true, &[])?;
+            let leaf_key = generate_p256_key()?;
 
-        let serial = leaf_cert
-            .serial_number()
-            .to_bn()?
-            .to_hex_str()?
-            .to_string()
-            .to_ascii_lowercase();
-        let status = RevocationStatusList {
-            entries: [(
-                serial.clone(),
-                RevocationStatusEntry {
-                    status: RevocationState::Revoked,
-                    expires: None,
-                    reason: Some(RevocationReason::KeyCompromise),
-                    comment: Some("test".to_string()),
-                },
-            )]
-            .into_iter()
-            .collect(),
-        };
+            let extension = build_custom_extension(
+                ANDROID_KEY_ATTESTATION_OID,
+                &encode_key_description(
+                    b"android-challenge",
+                    b"unique-id",
+                    "com.example.wallet",
+                    &sha256_bytes(b"signing-cert"),
+                    true,
+                ),
+            )?;
+            let leaf_cert = issue_certificate(
+                "Android Leaf",
+                &leaf_key,
+                Some(&root_cert),
+                &root_key,
+                false,
+                &[extension],
+            )?;
 
-        let err = check_revocation_status(&[leaf_cert.to_der()?], &status).unwrap_err();
-        assert!(err.to_string().contains(&serial));
-        assert!(err.to_string().contains("Revoked"));
-        Ok(())
+            let serial = leaf_cert
+                .serial_number()
+                .to_bn()?
+                .to_hex_str()?
+                .to_string()
+                .to_ascii_lowercase();
+            let status = RevocationStatusList {
+                entries: [(
+                    serial.clone(),
+                    RevocationStatusEntry {
+                        status: RevocationState::Revoked,
+                        expires: None,
+                        reason: Some(RevocationReason::KeyCompromise),
+                        comment: Some("test".to_string()),
+                    },
+                )]
+                .into_iter()
+                .collect(),
+            };
+
+            let err = check_revocation_status(&[leaf_cert.to_der()?], &status).unwrap_err();
+            assert!(err.to_string().contains(&serial));
+            assert!(err.to_string().contains("Revoked"));
+            Ok(())
+        }
     }
 
     fn generate_p256_key() -> Result<PKey<Private>> {

@@ -1,4 +1,5 @@
 # AWS Nitro Enclaves Vault
+
 test_202603051741
 
 [![Release Notes](https://img.shields.io/github/v/release/aws-samples/sample-code-for-a-secure-vault-using-aws-nitro-enclaves)](https://github.com/aws-samples/sample-code-for-a-secure-vault-using-aws-nitro-enclaves/releases)
@@ -11,9 +12,10 @@ This repository contains a sample secure vault solution built using [AWS Nitro E
 
 ## Author
 
-* [Justin Plock](https://www.linkedin.com/in/justinplock/) ([@jplock](https://github.com/jplock))
+- [Justin Plock](https://www.linkedin.com/in/justinplock/) ([@jplock](https://github.com/jplock))
 
 # Contributors
+
 [![contributors](https://contrib.rocks/image?repo=aws-samples/sample-code-for-a-secure-vault-using-aws-nitro-enclaves&max=2000)](https://github.com/aws-samples/sample-code-for-a-secure-vault-using-aws-nitro-enclaves/graphs/contributors)
 
 ## License
@@ -26,3 +28,7 @@ This library is licensed under the MIT-0 License. See the [LICENSE](LICENSE) fil
 - [License](LICENSE)
 - [Code of Conduct](CODE_OF_CONDUCT.md)
 - [Contributing](CONTRIBUTING.md)
+
+## Todo
+
+- add resistance for repeatable request attack

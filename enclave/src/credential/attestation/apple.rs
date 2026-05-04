@@ -1,16 +1,13 @@
-use crate::attestation::common::{
+use crate::codec::bs64::DecodeBs64;
+use crate::credential::common::{
     certificate_extension_value, load_pem_certificates, parse_der, sha256_bytes, verify_cert_chain,
 };
-use crate::codec::bs64::DecodeBs64;
-use anyhow::{Result, anyhow, bail};
-use base64::Engine as _;
+use anyhow::{anyhow, bail, Result};
 use base64::engine::general_purpose::{STANDARD, STANDARD_NO_PAD, URL_SAFE, URL_SAFE_NO_PAD};
+use base64::Engine as _;
 use openssl::bn::BigNumContext;
 use openssl::ec::PointConversionForm;
-use openssl::ecdsa::EcdsaSig;
-use openssl::hash::MessageDigest;
 use openssl::pkey::{PKey, Public};
-use openssl::sign::Verifier as OpenSslVerifier;
 use openssl::x509::X509;
 use serde::{Deserialize, Serialize};
 use serde_bytes::ByteBuf;
@@ -30,6 +27,7 @@ CgYIKoZIzj0EAwMDaAAwZQIwQgFGnByvsiVbpTKwSga0kP0e8EeDS4+sQmTvb7vn
 53O5+FRXgeLhpJ06ysC5PrOyAjEAp5U4xDgEgllF7En3VcE3iexZZtKeYnpqtijV
 oyFraWVIyd/dganmrduC1bmTBGwD
 -----END CERTIFICATE-----";
+//todo: 这里动态配置
 const REAL_SAMPLE_APP_ID: &str = "F632MRRB47.com.chainlessios.app";
 
 const APPLE_APP_ATTEST_FORMAT: &str = "apple-appattest";
@@ -50,15 +48,6 @@ struct AppAttestationObject {
     /// WebAuthn 风格的 authenticator data，里面包含 rpIdHash、计数器、credentialId、公钥等。
     #[serde(rename = "authData")]
     auth_data: ByteBuf,
-}
-
-#[derive(Debug, Deserialize)]
-struct AppAssertionObject {
-    /// 断言签名，ASN.1 DER / X9.62 格式。
-    signature: ByteBuf,
-    /// 简化版 authenticator data，仅包含前 37 字节基础字段。
-    #[serde(rename = "authenticatorData")]
-    authenticator_data: ByteBuf,
 }
 
 #[derive(Debug, Deserialize)]
@@ -90,12 +79,6 @@ pub struct VerifiedAttestation {
     pub public_key_spki_der: Vec<u8>,
     /// 未压缩 EC 公钥，格式为 `04 || X || Y`。
     pub public_key_raw: Vec<u8>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct VerifiedAssertion {
-    /// assertion 中的计数器，应该严格递增。
-    pub counter: u32,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -152,16 +135,6 @@ struct ParsedAuthenticatorData {
     credential_id: Vec<u8>,
     /// `authData` 里携带的 credential public key，已转换成未压缩 EC 点格式。
     credential_public_key_raw: Vec<u8>,
-}
-
-#[derive(Debug)]
-struct ParsedAssertionAuthenticatorData {
-    /// `SHA256(app_id)`，用于校验 assertion 绑定的 App ID。
-    rp_id_hash: [u8; 32],
-    /// WebAuthn flags 字节。
-    flags: u8,
-    /// assertion 计数器。
-    counter: u32,
 }
 
 /// Verify an iOS App Attest attestation object.
@@ -263,9 +236,7 @@ pub fn parse_attestation_object_base64(
     let attestation_object = STANDARD
         .decode(attestation_object_base64)
         .map_err(|err| anyhow!("failed to base64 decode App Attest object: {err}"))?;
-    let res = parse_attestation_object_bytes(&attestation_object);
-    println!("{:#?}", res);
-    res
+    parse_attestation_object_bytes(&attestation_object)
 }
 
 pub fn parse_attestation_object_bytes(raw: &[u8]) -> Result<ParsedAttestationObjectView> {
@@ -313,104 +284,6 @@ pub fn extract_attested_public_key_base64(attestation_object_base64: &str) -> Re
     Ok(parse_attestation_object_base64(attestation_object_base64)?.public_key_spki_der_base64)
 }
 
-/// Verify an iOS App Attest assertion object.
-///
-/// `public_key_spki_der` should come from a previously verified attestation object.
-/// `app_id` should be `{team_id}.{bundle_id}`.
-/// `client_data_hash` should be the SHA-256 hash supplied to `generateAssertion`.
-/// `previous_counter` should be the last accepted assertion counter for this key, if any.
-pub fn verify_assertion(
-    assertion_object: &[u8],
-    public_key_spki_der: &[u8],
-    app_id: &str,
-    client_data_hash: &[u8],
-    previous_counter: Option<u32>,
-) -> Result<VerifiedAssertion> {
-    let assertion = parse_assertion_object(assertion_object)?;
-    let auth_data = parse_assertion_authenticator_data(assertion.authenticator_data.as_slice())?;
-    let expected_rp_id_hash = sha256_bytes(app_id.as_bytes());
-    if auth_data.rp_id_hash.as_slice() != expected_rp_id_hash.as_slice() {
-        bail!("App Attest assertion app identity hash mismatch");
-    }
-
-    match previous_counter {
-        Some(previous) if auth_data.counter <= previous => {
-            bail!("App Attest assertion counter did not increase");
-        }
-        None if auth_data.counter == 0 => {
-            bail!("App Attest assertion counter must be greater than zero");
-        }
-        _ => {}
-    }
-
-    let public_key = PKey::public_key_from_der(public_key_spki_der)?;
-    let mut nonce_input =
-        Vec::with_capacity(assertion.authenticator_data.len() + client_data_hash.len());
-    nonce_input.extend_from_slice(assertion.authenticator_data.as_slice());
-    nonce_input.extend_from_slice(client_data_hash);
-    let nonce = sha256_bytes(&nonce_input);
-
-    let signature = EcdsaSig::from_der(assertion.signature.as_slice())?;
-    let ec_public_key = public_key.ec_key()?;
-    let direct_digest_valid = signature.verify(&nonce, &ec_public_key)?;
-    //直接校验 SHA256(authenticatorData || clientDataHash)”路径；如果失败，再走一层前端/WebCrypto 兼容路径，把这个
-    //nonce 当作消息交给 ECDSA-SHA256 验证器
-    let frontend_compatible_valid = if direct_digest_valid {
-        false
-    } else {
-        // Some frontend/WebCrypto flows first compute SHA256(authenticatorData || clientDataHash)
-        // and then pass that digest into an ES256 verifier, which hashes once more internally.
-        verify_attested_signature(public_key_spki_der, &nonce, assertion.signature.as_slice())?
-    };
-    if !direct_digest_valid && !frontend_compatible_valid {
-        bail!("App Attest assertion signature verification failed");
-    }
-
-    Ok(VerifiedAssertion {
-        counter: auth_data.counter,
-    })
-}
-
-pub fn verify_assertion_base64(
-    assertion_object_base64: &str,
-    public_key_spki_der_base64: &str,
-    app_id: &str,
-    client_data_hash_base64: &str,
-    previous_counter: Option<u32>,
-) -> Result<VerifiedAssertion> {
-    let assertion_object = STANDARD
-        .decode(assertion_object_base64)
-        .map_err(|err| anyhow!("failed to base64 decode App Attest assertion object: {err}"))?;
-    let public_key_spki_der = STANDARD
-        .decode(public_key_spki_der_base64)
-        .map_err(|err| anyhow!("failed to base64 decode App Attest assertion public key: {err}"))?;
-    let client_data_hash = STANDARD.decode(client_data_hash_base64).map_err(|err| {
-        anyhow!("failed to base64 decode App Attest assertion clientDataHash: {err}")
-    })?;
-
-    verify_assertion(
-        &assertion_object,
-        &public_key_spki_der,
-        app_id,
-        &client_data_hash,
-        previous_counter,
-    )
-}
-
-/// 使用 App Attest 证明出的 P-256 公钥验证 ECDSA-SHA256 签名。
-///
-/// `signature_der` 应为 ASN.1 DER / X9.62 格式。
-pub fn verify_attested_signature(
-    public_key_spki_der: &[u8],
-    message: &[u8],
-    signature_der: &[u8],
-) -> Result<bool> {
-    let public_key = PKey::public_key_from_der(public_key_spki_der)?;
-    let mut verifier = OpenSslVerifier::new(MessageDigest::sha256(), &public_key)?;
-    verifier.update(message)?;
-    Ok(verifier.verify(signature_der)?)
-}
-
 fn parse_attestation_object(raw: &[u8]) -> Result<AppAttestationObject> {
     let value: Value = serde_cbor::from_slice(raw)?;
     let map = cbor_map(value, "App Attest attestation object")?;
@@ -425,24 +298,6 @@ fn parse_attestation_object(raw: &[u8]) -> Result<AppAttestationObject> {
             &map,
             "authData",
             "App Attest attestation object",
-        )?),
-    })
-}
-
-fn parse_assertion_object(raw: &[u8]) -> Result<AppAssertionObject> {
-    let value: Value = serde_cbor::from_slice(raw)?;
-    let map = cbor_map(value, "App Attest assertion object")?;
-
-    Ok(AppAssertionObject {
-        signature: ByteBuf::from(bytes_field_by_name(
-            &map,
-            "signature",
-            "App Attest assertion object",
-        )?),
-        authenticator_data: ByteBuf::from(bytes_field_by_name(
-            &map,
-            "authenticatorData",
-            "App Attest assertion object",
         )?),
     })
 }
@@ -552,23 +407,6 @@ fn parse_authenticator_data(raw: &[u8]) -> Result<ParsedAuthenticatorData> {
         aaguid,
         credential_id,
         credential_public_key_raw,
-    })
-}
-
-fn parse_assertion_authenticator_data(raw: &[u8]) -> Result<ParsedAssertionAuthenticatorData> {
-    if raw.len() != 37 {
-        bail!("App Attest assertion authenticatorData must be exactly 37 bytes");
-    }
-
-    let mut rp_id_hash = [0_u8; 32];
-    rp_id_hash.copy_from_slice(&raw[..32]);
-    let flags = raw[32];
-    let counter = u32::from_be_bytes(raw[33..37].try_into()?);
-
-    Ok(ParsedAssertionAuthenticatorData {
-        rp_id_hash,
-        flags,
-        counter,
     })
 }
 
@@ -685,10 +523,6 @@ impl RealWorldSample {
         extract_attested_public_key_base64(&self.attestation_object_base64)
     }
 
-    pub fn client_data(&self) -> Result<ClientData> {
-        serde_json::from_str(&self.client_data_utf8).map_err(|e| e.into())
-    }
-
     pub fn verify(&self) -> Result<()> {
         let expected_client_data_hash = sha256_bytes(self.client_data_utf8.as_bytes());
         let provided_client_data_hash = self.client_data_hash_base64.decode_bs64()?;
@@ -712,24 +546,8 @@ impl RealWorldSample {
     }
 }
 
-#[derive(Deserialize)]
-struct ClientData {
-    /// 业务层 challenge。
-    #[serde(rename = "challenge")]
-    challenge: String,
-    /// challenge 的签发时间。
-    #[serde(rename = "issuedAt")]
-    issued_at: String,
-    /// 可选的业务公钥字段，不是 App Attest 原生字段。
-    #[serde(rename = "pubkey")]
-    pubkey: Option<String>,
-}
-
 #[cfg(test)]
 mod tests {
-    use crate::codec::bs64::EncodeBs64;
-    use crate::codec::hex::DecodeHex;
-
     use super::*;
     use base64::engine::general_purpose::{STANDARD, URL_SAFE_NO_PAD};
     use openssl::asn1::{Asn1Object, Asn1OctetString, Asn1Time};
@@ -738,9 +556,8 @@ mod tests {
     use openssl::hash::MessageDigest;
     use openssl::nid::Nid;
     use openssl::pkey::{PKey, Private};
-    use openssl::sign::Signer;
     use openssl::x509::extension::{BasicConstraints, KeyUsage};
-    use openssl::x509::{X509, X509Extension, X509NameBuilder};
+    use openssl::x509::{X509Extension, X509NameBuilder, X509};
     use serde::Serialize;
     use serde_bytes::ByteBuf;
 
@@ -760,386 +577,217 @@ mod tests {
         receipt: Option<ByteBuf>,
     }
 
-    #[derive(Serialize)]
-    struct EncodedAssertionObject {
-        signature: ByteBuf,
-        #[serde(rename = "authenticatorData")]
-        authenticator_data: ByteBuf,
+    mod verify_attestation_cases {
+        use super::*;
+
+        #[test]
+        fn accepts_valid_development_attestation() -> Result<()> {
+            let root_key = generate_p256_key()?;
+            let root_cert = issue_certificate(
+                "Apple App Attest Root",
+                &root_key,
+                None,
+                &root_key,
+                true,
+                &[],
+            )?;
+
+            let intermediate_key = generate_p256_key()?;
+            let intermediate_cert = issue_certificate(
+                "Apple App Attest Intermediate",
+                &intermediate_key,
+                Some(&root_cert),
+                &root_key,
+                true,
+                &[],
+            )?;
+
+            let leaf_key = generate_p256_key()?;
+            let app_id = "ABCD1234.com.example.wallet";
+            let client_data_hash = sha256_bytes(b"attestation-challenge");
+            let leaf_public_key = PKey::public_key_from_der(&leaf_key.public_key_to_der()?)?;
+            let leaf_public_key_raw = public_key_raw_bytes(&leaf_public_key)?;
+            let key_id_bytes = sha256_bytes(&leaf_public_key_raw);
+            let credential_public_key = cose_public_key_from_ec_key(&leaf_key)?;
+            let auth_data = build_auth_data(
+                app_id,
+                &key_id_bytes,
+                &credential_public_key,
+                AppAttestEnvironment::Development,
+            );
+            let mut nonce_input = auth_data.clone();
+            nonce_input.extend_from_slice(&client_data_hash);
+            let nonce = sha256_bytes(&nonce_input);
+
+            let nonce_extension =
+                build_custom_extension(APPLE_NONCE_EXTENSION_OID, &encode_nonce_extension(&nonce))?;
+            let leaf_cert = issue_certificate(
+                "Leaf",
+                &leaf_key,
+                Some(&intermediate_cert),
+                &intermediate_key,
+                false,
+                &[nonce_extension],
+            )?;
+
+            let receipt = b"synthetic-receipt".to_vec();
+            let attestation_object = encode_attestation_object(
+                &auth_data,
+                &[leaf_cert.to_der()?, intermediate_cert.to_der()?],
+                Some(receipt.clone()),
+            )?;
+            let verified = verify_attestation(
+                &attestation_object,
+                app_id,
+                &URL_SAFE_NO_PAD.encode(&key_id_bytes),
+                &client_data_hash,
+                &root_cert.to_pem()?,
+            )?;
+
+            assert_eq!(verified.environment, AppAttestEnvironment::Development);
+            assert_eq!(verified.counter, 0);
+            assert_eq!(verified.key_id, key_id_bytes);
+            assert_eq!(verified.receipt, Some(receipt));
+            assert_eq!(verified.public_key_raw, leaf_public_key_raw);
+            Ok(())
+        }
+
+        #[test]
+        fn rejects_wrong_app_id() -> Result<()> {
+            let root_key = generate_p256_key()?;
+            let root_cert = issue_certificate(
+                "Apple App Attest Root",
+                &root_key,
+                None,
+                &root_key,
+                true,
+                &[],
+            )?;
+            let leaf_key = generate_p256_key()?;
+            let leaf_public_key = PKey::public_key_from_der(&leaf_key.public_key_to_der()?)?;
+            let key_id_bytes = sha256_bytes(&public_key_raw_bytes(&leaf_public_key)?);
+            let app_id = "ABCD1234.com.example.wallet";
+            let client_data_hash = sha256_bytes(b"challenge");
+            let credential_public_key = cose_public_key_from_ec_key(&leaf_key)?;
+            let auth_data = build_auth_data(
+                app_id,
+                &key_id_bytes,
+                &credential_public_key,
+                AppAttestEnvironment::Development,
+            );
+            let mut nonce_input = auth_data.clone();
+            nonce_input.extend_from_slice(&client_data_hash);
+            let nonce = sha256_bytes(&nonce_input);
+            let nonce_extension =
+                build_custom_extension(APPLE_NONCE_EXTENSION_OID, &encode_nonce_extension(&nonce))?;
+            let leaf_cert = issue_certificate(
+                "Leaf",
+                &leaf_key,
+                Some(&root_cert),
+                &root_key,
+                false,
+                &[nonce_extension],
+            )?;
+            let attestation_object =
+                encode_attestation_object(&auth_data, &[leaf_cert.to_der()?], None)?;
+
+            let err = verify_attestation(
+                &attestation_object,
+                "ABCD1234.com.example.other",
+                &URL_SAFE_NO_PAD.encode(&key_id_bytes),
+                &client_data_hash,
+                &root_cert.to_pem()?,
+            )
+            .unwrap_err();
+
+            assert!(err.to_string().contains("app identity hash mismatch"));
+            Ok(())
+        }
+
+        #[test]
+        fn accepts_real_world_sample() -> Result<()> {
+            let sample: RealWorldSample = serde_json::from_str(include_str!(
+                "../testdata/ios_real_world_attestation_object.txt"
+            ))?;
+            let expected_client_data_hash = sha256_bytes(sample.client_data_utf8.as_bytes());
+            let provided_client_data_hash = STANDARD.decode(&sample.client_data_hash_base64)?;
+            assert_eq!(provided_client_data_hash, expected_client_data_hash);
+            let attestation_object = STANDARD.decode(&sample.attestation_object_base64)?;
+
+            let verified = verify_attestation(
+                &attestation_object,
+                REAL_SAMPLE_APP_ID,
+                &sample.key_id,
+                &provided_client_data_hash,
+                APPLE_APP_ATTEST_ROOT_CA_PEM.as_bytes(),
+            )?;
+
+            assert_eq!(verified.environment, AppAttestEnvironment::Development);
+            assert_eq!(verified.counter, 0);
+            assert!(verified.receipt.is_some());
+            assert_eq!(verified.key_id, STANDARD.decode(&sample.key_id)?);
+            Ok(())
+        }
     }
 
-    #[derive(Deserialize)]
-    struct RealWorldAssertionSample {
-        /// 客户端 `generateKey()` 返回的 keyId，应与已验证 attestation 的 keyId 相同。
-        #[serde(rename = "keyId")]
-        key_id: String,
-        /// 业务层自定义 clientData JSON 字符串。
-        #[serde(rename = "clientDataUtf8")]
-        client_data_utf8: String,
-        /// `SHA256(clientDataUtf8)` 的 Base64。
-        #[serde(rename = "clientDataHashBase64")]
-        client_data_hash_base64: String,
-        /// Apple 返回的 assertion object，CBOR 二进制后再 Base64。
-        #[serde(rename = "assertionObjectBase64")]
-        assertion_object_base64: String,
-    }
+    mod parse_attestation_object_cases {
+        use super::*;
 
-    #[test]
-    fn test_verify_attestation_accepts_valid_development_attestation() -> Result<()> {
-        let root_key = generate_p256_key()?;
-        let root_cert = issue_certificate(
-            "Apple App Attest Root",
-            &root_key,
-            None,
-            &root_key,
-            true,
-            &[],
-        )?;
+        #[test]
+        fn extracts_real_world_public_key() -> Result<()> {
+            let sample: RealWorldSample = serde_json::from_str(include_str!(
+                "../testdata/ios_real_world_attestation_object.txt"
+            ))?;
+            let client_data_hash = STANDARD.decode(&sample.client_data_hash_base64)?;
+            let attestation_object = STANDARD.decode(&sample.attestation_object_base64)?;
 
-        let intermediate_key = generate_p256_key()?;
-        let intermediate_cert = issue_certificate(
-            "Apple App Attest Intermediate",
-            &intermediate_key,
-            Some(&root_cert),
-            &root_key,
-            true,
-            &[],
-        )?;
+            let parsed = parse_attestation_object_base64(&sample.attestation_object_base64)?;
+            let verified = verify_attestation(
+                &attestation_object,
+                REAL_SAMPLE_APP_ID,
+                &sample.key_id,
+                &client_data_hash,
+                APPLE_APP_ATTEST_ROOT_CA_PEM.as_bytes(),
+            )?;
 
-        let leaf_key = generate_p256_key()?;
-        let app_id = "ABCD1234.com.example.wallet";
-        let client_data_hash = sha256_bytes(b"attestation-challenge");
-        let leaf_public_key = PKey::public_key_from_der(&leaf_key.public_key_to_der()?)?;
-        let leaf_public_key_raw = public_key_raw_bytes(&leaf_public_key)?;
-        let key_id_bytes = sha256_bytes(&leaf_public_key_raw);
-        let credential_public_key = cose_public_key_from_ec_key(&leaf_key)?;
-        let auth_data = build_auth_data(
-            app_id,
-            &key_id_bytes,
-            &credential_public_key,
-            AppAttestEnvironment::Development,
-        );
-        let mut nonce_input = auth_data.clone();
-        nonce_input.extend_from_slice(&client_data_hash);
-        let nonce = sha256_bytes(&nonce_input);
+            assert_eq!(parsed.fmt, APPLE_APP_ATTEST_FORMAT);
+            assert_eq!(parsed.environment, AppAttestEnvironment::Development);
+            assert_eq!(parsed.counter, 0);
+            assert_eq!(parsed.credential_id_base64, sample.key_id);
+            assert!(parsed.public_key_matches_certificate);
+            assert_eq!(
+                parsed.public_key_raw_hex,
+                hex::encode(&verified.public_key_raw)
+            );
+            assert_eq!(
+                parsed.public_key_spki_der_base64,
+                STANDARD.encode(&verified.public_key_spki_der)
+            );
+            assert_eq!(parsed.key_id_from_public_key_raw_base64, sample.key_id);
 
-        let nonce_extension =
-            build_custom_extension(APPLE_NONCE_EXTENSION_OID, &encode_nonce_extension(&nonce))?;
-        let leaf_cert = issue_certificate(
-            "Leaf",
-            &leaf_key,
-            Some(&intermediate_cert),
-            &intermediate_key,
-            false,
-            &[nonce_extension],
-        )?;
+            Ok(())
+        }
 
-        let receipt = b"synthetic-receipt".to_vec();
-        let attestation_object = encode_attestation_object(
-            &auth_data,
-            &[leaf_cert.to_der()?, intermediate_cert.to_der()?],
-            Some(receipt.clone()),
-        )?;
-        let verified = verify_attestation(
-            &attestation_object,
-            app_id,
-            &URL_SAFE_NO_PAD.encode(&key_id_bytes),
-            &client_data_hash,
-            &root_cert.to_pem()?,
-        )?;
+        #[test]
+        fn extract_attested_public_key_matches_verified_public_key() -> Result<()> {
+            let sample: RealWorldSample = serde_json::from_str(include_str!(
+                "../testdata/ios_real_world_attestation_object.txt"
+            ))?;
+            let client_data_hash = STANDARD.decode(&sample.client_data_hash_base64)?;
+            let attestation_object = STANDARD.decode(&sample.attestation_object_base64)?;
+            let verified = verify_attestation(
+                &attestation_object,
+                REAL_SAMPLE_APP_ID,
+                &sample.key_id,
+                &client_data_hash,
+                APPLE_APP_ATTEST_ROOT_CA_PEM.as_bytes(),
+            )?;
 
-        assert_eq!(verified.environment, AppAttestEnvironment::Development);
-        assert_eq!(verified.counter, 0);
-        assert_eq!(verified.key_id, key_id_bytes);
-        assert_eq!(verified.receipt, Some(receipt));
-        assert_eq!(verified.public_key_raw, leaf_public_key_raw);
-        Ok(())
-    }
+            let extracted = extract_attested_public_key_base64(&sample.attestation_object_base64)?;
 
-    #[test]
-    fn test_verify_attestation_rejects_wrong_app_id() -> Result<()> {
-        let root_key = generate_p256_key()?;
-        let root_cert = issue_certificate(
-            "Apple App Attest Root",
-            &root_key,
-            None,
-            &root_key,
-            true,
-            &[],
-        )?;
-        let leaf_key = generate_p256_key()?;
-        let leaf_public_key = PKey::public_key_from_der(&leaf_key.public_key_to_der()?)?;
-        let key_id_bytes = sha256_bytes(&public_key_raw_bytes(&leaf_public_key)?);
-        let app_id = "ABCD1234.com.example.wallet";
-        let client_data_hash = sha256_bytes(b"challenge");
-        let credential_public_key = cose_public_key_from_ec_key(&leaf_key)?;
-        let auth_data = build_auth_data(
-            app_id,
-            &key_id_bytes,
-            &credential_public_key,
-            AppAttestEnvironment::Development,
-        );
-        let mut nonce_input = auth_data.clone();
-        nonce_input.extend_from_slice(&client_data_hash);
-        let nonce = sha256_bytes(&nonce_input);
-        let nonce_extension =
-            build_custom_extension(APPLE_NONCE_EXTENSION_OID, &encode_nonce_extension(&nonce))?;
-        let leaf_cert = issue_certificate(
-            "Leaf",
-            &leaf_key,
-            Some(&root_cert),
-            &root_key,
-            false,
-            &[nonce_extension],
-        )?;
-        let attestation_object =
-            encode_attestation_object(&auth_data, &[leaf_cert.to_der()?], None)?;
-
-        let err = verify_attestation(
-            &attestation_object,
-            "ABCD1234.com.example.other",
-            &URL_SAFE_NO_PAD.encode(&key_id_bytes),
-            &client_data_hash,
-            &root_cert.to_pem()?,
-        )
-        .unwrap_err();
-
-        assert!(err.to_string().contains("app identity hash mismatch"));
-        Ok(())
-    }
-
-    #[test]
-    fn test_verify_attestation_accepts_real_world_sample() -> Result<()> {
-        let sample: RealWorldSample = serde_json::from_str(include_str!(
-            "./testdata/ios_real_world_attestation_object.txt"
-        ))?;
-        let expected_client_data_hash = sha256_bytes(sample.client_data_utf8.as_bytes());
-        let provided_client_data_hash = STANDARD.decode(&sample.client_data_hash_base64)?;
-        assert_eq!(provided_client_data_hash, expected_client_data_hash);
-        let attestation_object = STANDARD.decode(&sample.attestation_object_base64)?;
-
-        let verified = verify_attestation(
-            &attestation_object,
-            REAL_SAMPLE_APP_ID,
-            &sample.key_id,
-            &provided_client_data_hash,
-            APPLE_APP_ATTEST_ROOT_CA_PEM.as_bytes(),
-        )?;
-
-        assert_eq!(verified.environment, AppAttestEnvironment::Development);
-        assert_eq!(verified.counter, 0);
-        assert!(verified.receipt.is_some());
-        assert_eq!(verified.key_id, STANDARD.decode(&sample.key_id)?);
-        Ok(())
-    }
-
-    #[test]
-    fn test_parse_attestation_object_base64_extracts_real_world_public_key() -> Result<()> {
-        let sample: RealWorldSample = serde_json::from_str(include_str!(
-            "./testdata/ios_real_world_attestation_object.txt"
-        ))?;
-        let client_data_hash = STANDARD.decode(&sample.client_data_hash_base64)?;
-        let attestation_object = STANDARD.decode(&sample.attestation_object_base64)?;
-
-        let parsed = parse_attestation_object_base64(&sample.attestation_object_base64)?;
-        println!("{:#?}", parsed);
-        let verified = verify_attestation(
-            &attestation_object,
-            REAL_SAMPLE_APP_ID,
-            &sample.key_id,
-            &client_data_hash,
-            APPLE_APP_ATTEST_ROOT_CA_PEM.as_bytes(),
-        )?;
-
-        assert_eq!(parsed.fmt, APPLE_APP_ATTEST_FORMAT);
-        assert_eq!(parsed.environment, AppAttestEnvironment::Development);
-        assert_eq!(parsed.counter, 0);
-        assert_eq!(parsed.credential_id_base64, sample.key_id);
-        assert!(parsed.public_key_matches_certificate);
-        assert_eq!(
-            parsed.public_key_raw_hex,
-            hex::encode(&verified.public_key_raw)
-        );
-        assert_eq!(
-            parsed.public_key_spki_der_base64,
-            STANDARD.encode(&verified.public_key_spki_der)
-        );
-        assert_eq!(parsed.key_id_from_public_key_raw_base64, sample.key_id);
-
-        Ok(())
-    }
-
-    #[test]
-    fn test_extract_attested_public_key_base64_matches_verified_public_key() -> Result<()> {
-        let sample: RealWorldSample = serde_json::from_str(include_str!(
-            "./testdata/ios_real_world_attestation_object.txt"
-        ))?;
-        let client_data_hash = STANDARD.decode(&sample.client_data_hash_base64)?;
-        let attestation_object = STANDARD.decode(&sample.attestation_object_base64)?;
-        let verified = verify_attestation(
-            &attestation_object,
-            REAL_SAMPLE_APP_ID,
-            &sample.key_id,
-            &client_data_hash,
-            APPLE_APP_ATTEST_ROOT_CA_PEM.as_bytes(),
-        )?;
-
-        let extracted = extract_attested_public_key_base64(&sample.attestation_object_base64)?;
-
-        assert_eq!(extracted, STANDARD.encode(&verified.public_key_spki_der));
-        Ok(())
-    }
-
-    #[test]
-    fn test_verify_attested_signature_accepts_valid_signature() -> Result<()> {
-        let key = generate_p256_key()?;
-        let public_key_spki_der = key.public_key_to_der()?;
-        let message = b"apple-attested-signature";
-
-        let mut signer = Signer::new(MessageDigest::sha256(), &key)?;
-        signer.update(message)?;
-        let signature = signer.sign_to_vec()?;
-
-        assert!(verify_attested_signature(
-            &public_key_spki_der,
-            message,
-            &signature
-        )?);
-        Ok(())
-    }
-
-    #[test]
-    fn test_verify_assertion_accepts_synthetic_sample() -> Result<()> {
-        let key = generate_p256_key()?;
-        let public_key_spki_der = key.public_key_to_der()?;
-        let client_data_hash = sha256_bytes(b"synthetic-assertion-client-data");
-        let auth_data = build_assertion_auth_data(REAL_SAMPLE_APP_ID, 1);
-        let mut nonce_input = auth_data.clone();
-        nonce_input.extend_from_slice(&client_data_hash);
-        let nonce = sha256_bytes(&nonce_input);
-        let ec_private_key = key.ec_key()?;
-        let signature = EcdsaSig::sign(&nonce, &ec_private_key)?.to_der()?;
-        let assertion_object = encode_assertion_object(&auth_data, &signature)?;
-
-        let verified = verify_assertion(
-            &assertion_object,
-            &public_key_spki_der,
-            REAL_SAMPLE_APP_ID,
-            &client_data_hash,
-            Some(0),
-        )?;
-
-        assert_eq!(verified.counter, 1);
-        Ok(())
-    }
-
-    #[test]
-    fn test_verify_assertion_accepts_current_real_world_sample_with_frontend_compatibility()
-    -> Result<()> {
-        let attestation: RealWorldSample = serde_json::from_str(include_str!(
-            "./testdata/ios_real_world_attestation_object.txt"
-        ))?;
-        let assertion: RealWorldAssertionSample = serde_json::from_str(include_str!(
-            "./testdata/ios_real_world_assertion_object.txt"
-        ))?;
-
-        assert_eq!(assertion.key_id, attestation.key_id);
-
-        let attestation_client_data_hash = STANDARD.decode(&attestation.client_data_hash_base64)?;
-        assert_eq!(
-            attestation_client_data_hash,
-            sha256_bytes(attestation.client_data_utf8.as_bytes())
-        );
-
-        let attestation_object = STANDARD.decode(&attestation.attestation_object_base64)?;
-        let verified_attestation = verify_attestation(
-            &attestation_object,
-            REAL_SAMPLE_APP_ID,
-            &attestation.key_id,
-            &attestation_client_data_hash,
-            APPLE_APP_ATTEST_ROOT_CA_PEM.as_bytes(),
-        )?;
-
-        let assertion_client_data_hash = STANDARD.decode(&assertion.client_data_hash_base64)?;
-        assert_eq!(
-            assertion_client_data_hash,
-            sha256_bytes(assertion.client_data_utf8.as_bytes())
-        );
-
-        let assertion_object = STANDARD.decode(&assertion.assertion_object_base64)?;
-        let parsed_assertion = parse_assertion_object(&assertion_object)?;
-        let auth_data =
-            parse_assertion_authenticator_data(parsed_assertion.authenticator_data.as_slice())?;
-        let expected_rp_id_hash = sha256_bytes(REAL_SAMPLE_APP_ID.as_bytes());
-        assert_eq!(
-            auth_data.rp_id_hash.as_slice(),
-            expected_rp_id_hash.as_slice()
-        );
-        assert_eq!(auth_data.counter, 1);
-
-        let mut nonce_input = Vec::with_capacity(
-            parsed_assertion.authenticator_data.len() + assertion_client_data_hash.len(),
-        );
-        nonce_input.extend_from_slice(parsed_assertion.authenticator_data.as_slice());
-        nonce_input.extend_from_slice(&assertion_client_data_hash);
-        let nonce = sha256_bytes(&nonce_input);
-
-        let public_key = PKey::public_key_from_der(&verified_attestation.public_key_spki_der)?;
-        let ec_public_key = public_key.ec_key()?;
-        let signature = EcdsaSig::from_der(parsed_assertion.signature.as_slice())?;
-        assert!(!signature.verify(&nonce, &ec_public_key)?);
-
-        // This matches the common frontend/WebCrypto pattern:
-        // verify ES256 over the already-hashed nonce, which adds another SHA-256.
-        assert!(verify_attested_signature(
-            &verified_attestation.public_key_spki_der,
-            &nonce,
-            parsed_assertion.signature.as_slice(),
-        )?);
-
-        let verified_assertion = verify_assertion(
-            &assertion_object,
-            &verified_attestation.public_key_spki_der,
-            REAL_SAMPLE_APP_ID,
-            &assertion_client_data_hash,
-            Some(verified_attestation.counter),
-        )?;
-
-        assert_eq!(verified_attestation.counter, 0);
-        assert_eq!(verified_assertion.counter, 1);
-        Ok(())
-    }
-
-    #[test]
-    fn test_verify_attested_signature_rejects_current_real_ios_sample_with_attestation_pubkey()
-    -> Result<()> {
-        let key_id = "69XsNczVesfrD3W87ZNuig3HxifvwKsv352BqSFEMW8=";
-        let public_key_spki_der_base64 = "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE/UXhFba4E/qlmhA31KxQALhKCK/CkAHIiS+J+ekMPIny9TalboTGgZJ5raYO9U7vA0uZ5+sQgD2KkaU4/+H90w==";
-        let client_data_utf8 = "{\"type\":\"ios-sign-assertion\",\"keyId\":\"69XsNczVesfrD3W87ZNuig3HxifvwKsv352BqSFEMW8=\",\"issuedAt\":1777513207846,\"nonce\":\"27697292cbec3ad686a0a092f87\"}";
-        let payload_base64 = "eyJ0eXBlIjoiaW9zLXNpZ24tYXNzZXJ0aW9uIiwia2V5SWQiOiI2OVhzTmN6VmVzZnJEM1c4N1pOdWlnM0h4aWZ2d0tzdjM1MkJxU0ZFTVc4PSIsImlzc3VlZEF0IjoxNzc3NTEzMjA3ODQ2LCJub25jZSI6IjI3Njk3MjkyY2JlYzNhZDY4NmEwYTA5MmY4NyJ9";
-        let signature_base64 = "MEQCIBvpWLm/o1jW12zwayvRv8/Jhdb/uuZ2eAsKLRGR7jiNAiBNNLBUG1OANtZHTp6fJn/3XajszB8JPbg54JG2L8t6nw==";
-
-        let payload = STANDARD.decode(payload_base64)?;
-        assert_eq!(payload, client_data_utf8.as_bytes());
-
-        let public_key_spki_der = STANDARD.decode(public_key_spki_der_base64)?;
-        let signature_der = STANDARD.decode(signature_base64)?;
-
-        let high_level_verified = verify_attested_signature(
-            &public_key_spki_der,
-            client_data_utf8.as_bytes(),
-            &signature_der,
-        )?;
-
-        let public_key = PKey::public_key_from_der(&public_key_spki_der)?;
-        let ec_public_key = public_key.ec_key()?;
-        let signature = EcdsaSig::from_der(&signature_der)?;
-        let low_level_verified =
-            signature.verify(&sha256_bytes(client_data_utf8.as_bytes()), &ec_public_key)?;
-
-        assert_eq!(key_id, "69XsNczVesfrD3W87ZNuig3HxifvwKsv352BqSFEMW8=");
-        assert!(!high_level_verified);
-        assert!(!low_level_verified);
-        Ok(())
+            assert_eq!(extracted, STANDARD.encode(&verified.public_key_spki_der));
+            Ok(())
+        }
     }
 
     fn generate_p256_key() -> Result<PKey<Private>> {
@@ -1225,14 +873,6 @@ mod tests {
         Ok(serde_cbor::to_vec(&object)?)
     }
 
-    fn encode_assertion_object(auth_data: &[u8], signature_der: &[u8]) -> Result<Vec<u8>> {
-        let object = EncodedAssertionObject {
-            signature: ByteBuf::from(signature_der.to_vec()),
-            authenticator_data: ByteBuf::from(auth_data.to_vec()),
-        };
-        Ok(serde_cbor::to_vec(&object)?)
-    }
-
     fn build_auth_data(
         app_id: &str,
         credential_id: &[u8],
@@ -1250,14 +890,6 @@ mod tests {
         auth_data.extend_from_slice(&(credential_id.len() as u16).to_be_bytes());
         auth_data.extend_from_slice(credential_id);
         auth_data.extend_from_slice(credential_public_key);
-        auth_data
-    }
-
-    fn build_assertion_auth_data(app_id: &str, counter: u32) -> Vec<u8> {
-        let mut auth_data = Vec::with_capacity(37);
-        auth_data.extend_from_slice(&sha256_bytes(app_id.as_bytes()));
-        auth_data.push(FLAG_ATTESTED_CREDENTIAL_DATA);
-        auth_data.extend_from_slice(&counter.to_be_bytes());
         auth_data
     }
 
