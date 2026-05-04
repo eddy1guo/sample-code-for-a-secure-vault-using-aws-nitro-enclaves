@@ -240,10 +240,7 @@ impl EnclaveRequest<CreateWalletKeyRequest> {
             counter,
         }
         .serialize_json()?;
-        println!(
-            "generate new wallet: pri_key-> {},pubkey-> {} ",
-            wallet_prikey, wallet_pubkey
-        );
+        println!("generate new wallet:  {} ", plaint_text);
         Ok((self.encrypt(&plaint_text)?.encode_hex(), wallet_pubkey))
     }
 }

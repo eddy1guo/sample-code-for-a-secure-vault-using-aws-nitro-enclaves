@@ -21,7 +21,8 @@ use std::slice;
 #[cfg(target_env = "musl")]
 use ffi::{
     AWS_ADDRESS_MAX_LEN, AWS_NE_VSOCK_PROXY_ADDR, AWS_NE_VSOCK_PROXY_PORT, AWS_SOCKET_VSOCK_DOMAIN,
-    aws_allocator, aws_byte_buf, aws_byte_buf_clean_up_secure, aws_kms_decrypt_blocking,
+    aws_allocator, aws_byte_buf, aws_byte_buf_clean_up_secure, aws_byte_buf_from_array,
+    aws_kms_decrypt_blocking,
     aws_nitro_enclaves_get_allocator, aws_nitro_enclaves_kms_client,
     aws_nitro_enclaves_kms_client_config_default, aws_nitro_enclaves_kms_client_config_destroy,
     aws_nitro_enclaves_kms_client_configuration, aws_nitro_enclaves_kms_client_destroy,
@@ -443,12 +444,23 @@ pub fn kms_encrypt(
 
         // Step 8: Prepare plaintext buffer
         println!("line {}", line!());
-        let plaintext_buf = aws_byte_buf {
-            len: plaintext.len(),
-            buffer: plaintext.as_ptr() as *mut u8,
-            capacity: plaintext.len(),
-            allocator: ptr::null_mut(),
-        };
+        println!(
+            "kms_encrypt diagnostics: region={:?} key_id={:?} plaintext_len={} access_key_len={} session_token_len={}",
+            std::str::from_utf8(aws_region).unwrap_or("<non-utf8-region>"),
+            key_id,
+            plaintext.len(),
+            aws_key_id.len(),
+            aws_session_token.len()
+        );
+        let plaintext_buf =
+            aws_byte_buf_from_array(plaintext.as_ptr() as *mut std::ffi::c_void, plaintext.len());
+        println!(
+            "kms_encrypt plaintext_buf: len={} capacity={} buffer_ptr={:?} allocator_ptr={:?}",
+            plaintext_buf.len,
+            plaintext_buf.capacity,
+            plaintext_buf.buffer,
+            plaintext_buf.allocator
+        );
         println!("line {}", line!());
         // Step 9: Prepare ciphertext output buffer
         let mut ciphertext_buf = aws_byte_buf {
@@ -457,6 +469,13 @@ pub fn kms_encrypt(
             capacity: 0,
             allocator: ptr::null_mut(),
         };
+        println!(
+            "kms_encrypt ciphertext_buf before call: len={} capacity={} buffer_ptr={:?} allocator_ptr={:?}",
+            ciphertext_buf.len,
+            ciphertext_buf.capacity,
+            ciphertext_buf.buffer,
+            ciphertext_buf.allocator
+        );
         println!("line {}", line!());
         // Step 10: Call KMS encrypt
         let rc = aws_kms_encrypt_blocking(
@@ -474,8 +493,18 @@ pub fn kms_encrypt(
             let err_msg = aws_error_str(err_code);
             let msg = std::ffi::CStr::from_ptr(err_msg as *const std::ffi::c_char);
             println!(
-                "KMS encrypt failed: rc={}, err_code={}, msg={:?}",
-                rc, err_code, msg
+                "KMS encrypt failed: rc={}, err_code={}, msg={:?}, plaintext_buf(len={}, cap={}, ptr={:?}, alloc={:?}), ciphertext_buf(len={}, cap={}, ptr={:?}, alloc={:?})",
+                rc,
+                err_code,
+                msg,
+                plaintext_buf.len,
+                plaintext_buf.capacity,
+                plaintext_buf.buffer,
+                plaintext_buf.allocator,
+                ciphertext_buf.len,
+                ciphertext_buf.capacity,
+                ciphertext_buf.buffer,
+                ciphertext_buf.allocator
             );
             resources.cleanup();
             println!("line {}", line!());
