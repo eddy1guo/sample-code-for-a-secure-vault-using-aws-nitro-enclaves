@@ -349,6 +349,7 @@ pub struct WalletSignRequest {
     pub sig: String,
     #[validate(length(min = 1, max = 1000000000))]
     pub message: String,
+    pub issue_at: u64,
     #[validate(length(min = 1, max = 1000000000))]
     pub nonce: String,
     pub region: String,
@@ -369,9 +370,10 @@ pub struct CreateWalletKeyRequest {
     #[validate(length(min = 1, max = 1000000000))]
     pub verified_client: String,
     pub sig: String,
+    pub issue_at: u64,
     pub nonce: String,
-    pub region: String,
     pub key_id: String,
+    pub region: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -395,6 +397,7 @@ pub enum Platform {
 pub struct TeeClientRegisterRequest {
     pub attestation_doc: String,
     pub platform: Platform,
+    pub issue_at: u64,
     pub nonce: String,
     pub key_id: String,
     pub region: String,
