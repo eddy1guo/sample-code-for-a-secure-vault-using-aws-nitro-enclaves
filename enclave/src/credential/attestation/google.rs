@@ -143,6 +143,35 @@ impl RealWorldSample {
         );
         Ok(())
     }
+
+    pub fn app_id(&self) -> Result<String> {
+        let challenge = self.attestation_challenge_base64.decode_bs64()?;
+        let chain = self
+            .attestation_cert_chain_base64
+            .iter()
+            .map(|cert| cert.decode_bs64().map_err(anyhow::Error::from))
+            .collect::<Result<Vec<Vec<u8>>>>()?;
+        let requirements = KeyAttestationRequirements {
+            challenge: &challenge,
+            root_pems: &[],
+            expected_package_name: None,
+            expected_signature_digests: &[],
+            require_hardware_backed: true,
+            require_verified_boot: true,
+        };
+        let verified = verify_google_attestation(&chain, &requirements, None)?;
+        let application_id = verified
+            .application_id
+            .ok_or_else(|| anyhow!("Android attestation is missing attestationApplicationId"))?;
+        match application_id.package_names.as_slice() {
+            [package_name] => Ok(package_name.clone()),
+            [] => bail!("Android attestation does not contain any package name"),
+            package_names => bail!(
+                "Android attestation contains multiple package names: {}",
+                package_names.join(", ")
+            ),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -791,6 +820,16 @@ mod tests {
                 "testdata/android_hongmeng_real_world_attestation_object.txt"
             )
             .is_err());
+            Ok(())
+        }
+
+        #[test]
+        fn extracts_real_world_app_id() -> Result<()> {
+            let sample: RealWorldSample = serde_json::from_str(include_str!(
+                "../testdata/android_xiaomi_real_world_attestation_object.txt"
+            ))?;
+
+            assert_eq!(sample.app_id()?, "com.chainlessandroid.app");
             Ok(())
         }
     }

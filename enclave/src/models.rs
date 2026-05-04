@@ -22,10 +22,10 @@ use std::collections::HashMap;
 use std::fmt;
 use std::sync::Mutex;
 
-use anyhow::{anyhow, bail, Error, Result};
+use anyhow::{Error, Result, anyhow, bail};
 use aws_lc_rs::signature::{
-    EcdsaSigningAlgorithm, ECDSA_P256_SHA256_ASN1_SIGNING, ECDSA_P384_SHA384_ASN1_SIGNING,
-    ECDSA_P521_SHA512_ASN1_SIGNING,
+    ECDSA_P256_SHA256_ASN1_SIGNING, ECDSA_P384_SHA384_ASN1_SIGNING, ECDSA_P521_SHA512_ASN1_SIGNING,
+    EcdsaSigningAlgorithm,
 };
 use data_encoding::HEXLOWER;
 use ed25519_dalek::Keypair;
@@ -36,14 +36,14 @@ use rustls::crypto::aws_lc_rs::hpke::{
 };
 use rustls::crypto::hpke::Hpke;
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use zeroize::ZeroizeOnDrop;
 
 use crate::codec::bs58::{DecodeBs58, EncodeBs58};
 use crate::codec::hex::{DecodeHex, EncodeHex};
 use crate::codec::json::JsonSerialize;
 use crate::constants::{ENCODING_BINARY, ENCODING_HEX, MAX_FIELDS, P256, P384, P521};
-use crate::credential::assertion::verify_attested_signature;
+use crate::credential::assertion::verify_attested;
 use crate::credential::attestation::Attestation;
 use crate::credential::aws::{get_attestation_document, is_nitro_debug_mode};
 use crate::credential::common::{Platform, TeeClient, Usage, WalletKeyBond};
@@ -51,8 +51,8 @@ use crate::credential::common::{Platform, TeeClient, Usage, WalletKeyBond};
 use crate::ed25519::{self, new_key_pair};
 use crate::hpke::decrypt_value;
 use crate::kms::{
-    call_kms_encrypt, get_secret_key, get_tee_client, get_wallet_key_bond, get_wallet_private_key,
-    SecureHpkePrivateKey,
+    SecureHpkePrivateKey, call_kms_encrypt, get_secret_key, get_tee_client, get_wallet_key_bond,
+    get_wallet_private_key,
 };
 use crate::utils::base64_decode;
 
@@ -112,6 +112,7 @@ pub struct WalletSignRequest {
     pub sig: String,
     //txid
     pub message: String,
+    pub issue_at: u64,
     pub nonce: String,
     pub region: String,
 }
@@ -159,9 +160,18 @@ impl EnclaveRequest<WalletSignRequest> {
         let wallet_bond = get_wallet_key_bond(&self)?;
 
         //2) check tee client signature by tee pubkey
-        let tee_client = wallet_bond.clone().into_tee_client();
+        //let tee_client = wallet_bond.clone().into_tee_client();
         if !is_nitro_debug_mode()? {
-            verify_attested_signature(tee_client, &self.request.nonce, &self.request.sig)?;
+            verify_attested(
+                wallet_bond.client_platform,
+                &wallet_bond.app_id,
+                &self.request.sig,
+                &wallet_bond.client_pubkey,
+                self.request.issue_at,
+                &self.request.nonce,
+                Usage::WalletSign,
+                wallet_bond.counter,
+            )?;
         }
         let wallet_prikey_bytes = wallet_bond.wallet_prikey.decode_bs58()?;
         println!(
@@ -180,7 +190,7 @@ pub struct CreateWalletKeyRequest {
     //json string of tee client
     pub verified_client: String,
     pub sig: String,
-    pub expires: u64,
+    pub issue_at: u64,
     pub nonce: String,
     pub key_id: String,
     pub region: String,
@@ -203,15 +213,21 @@ impl EnclaveRequest<CreateWalletKeyRequest> {
         //todo: verify nonce
         //先验证tee密钥的签名
         let client = get_tee_client(&self)?;
-        if !is_nitro_debug_mode()? {
-            let msg = json!({
-                "type": "CreateWalletKey",
-                "expires": self.request.expires,
-                "nonce": self.request.nonce
-            })
-            .to_string();
-            verify_attested_signature(client.clone(), &msg, &self.request.sig)?;
-        }
+        let counter = if !is_nitro_debug_mode()? {
+            verify_attested(
+                client.platform.clone(),
+                &client.app_id,
+                &self.request.sig,
+                &client.pubkey,
+                self.request.issue_at,
+                &self.request.nonce,
+                Usage::CreatedWalletKey,
+                Some(0),
+            )?
+        } else {
+            //counter always be 1 for debug's ios
+            Some(1)
+        };
         let key_pair = new_key_pair();
         let wallet_prikey = key_pair.0.encode_bs58();
         let wallet_pubkey = key_pair.1.encode_bs58();
@@ -220,6 +236,8 @@ impl EnclaveRequest<CreateWalletKeyRequest> {
             client_pubkey: client.pubkey,
             wallet_prikey: wallet_prikey.clone(),
             usage: Usage::CreatedWalletKey,
+            app_id: client.app_id,
+            counter,
         }
         .serialize_json()?;
         println!(
@@ -235,7 +253,7 @@ impl EnclaveRequest<CreateWalletKeyRequest> {
 pub struct TeeClientRegisterRequest {
     pub attestation_doc: String,
     pub platform: Platform,
-    pub expires: u64,
+    pub issue_at: u64,
     pub nonce: String,
     pub key_id: String,
     pub region: String,
@@ -255,14 +273,14 @@ impl EnclaveRequest<TeeClientRegisterRequest> {
     //fix algorithm with ECDSA_P256_SHA256_ASN1_SIGNING
     pub fn encrypt_tee_client(&self) -> Result<String> {
         //todo: verify nonce if repeatable
-
         let attestation = self.attestation()?;
-
         attestation.verify()?;
         let pubkey = attestation.pubkey()?;
+        let app_id = attestation.app_id()?;
         let tee_client = TeeClient {
             platform: self.request.platform.clone(),
             pubkey,
+            app_id,
             usage: Usage::TeeClientRegister,
         }
         .serialize_json()?;
@@ -831,10 +849,12 @@ mod tests {
         let invalid_b64 = "aW52YWxpZA=="; // "invalid" in base64
         let result: Result<Suite> = invalid_b64.try_into();
         assert!(result.is_err());
-        assert!(result
-            .unwrap_err()
-            .to_string()
-            .contains("unknown suite identifier"));
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("unknown suite identifier")
+        );
     }
 
     #[test]

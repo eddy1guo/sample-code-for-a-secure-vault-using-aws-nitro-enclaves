@@ -544,6 +544,67 @@ impl RealWorldSample {
         assert_eq!(verified.key_id, self.key_id.decode_bs64()?);
         Ok(())
     }
+    pub fn app_id(&self) -> Result<String> {
+        let attestation_object = self.attestation_object_base64.decode_bs64()?;
+        let object = parse_attestation_object(&attestation_object)?;
+        if object.att_stmt.x5c.is_empty() {
+            bail!("App Attest attestation statement is missing x5c certificates");
+        }
+
+        let auth_data = parse_authenticator_data(object.auth_data.as_slice())?;
+        let candidates = extract_app_id_candidates(&object.att_stmt.x5c[0]);
+        let matched = candidates.into_iter().find(|candidate| {
+            sha256_bytes(candidate.as_bytes()).as_slice() == auth_data.rp_id_hash.as_slice()
+        });
+
+        matched.ok_or_else(|| anyhow!("failed to derive App Attest app id from attestation"))
+    }
+}
+
+fn extract_app_id_candidates(raw: &[u8]) -> Vec<String> {
+    let mut candidates = Vec::new();
+    let text = String::from_utf8_lossy(raw);
+    let bytes = text.as_bytes();
+    let mut start = None;
+
+    for (idx, byte) in bytes.iter().enumerate() {
+        let is_allowed = byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'-' | b'_');
+        if is_allowed {
+            if start.is_none() {
+                start = Some(idx);
+            }
+            continue;
+        }
+
+        if let Some(begin) = start.take() {
+            if let Some(candidate) = normalize_app_id_candidate(&text[begin..idx]) {
+                if !candidates.iter().any(|existing| existing == &candidate) {
+                    candidates.push(candidate);
+                }
+            }
+        }
+    }
+
+    if let Some(begin) = start {
+        if let Some(candidate) = normalize_app_id_candidate(&text[begin..]) {
+            if !candidates.iter().any(|existing| existing == &candidate) {
+                candidates.push(candidate);
+            }
+        }
+    }
+
+    candidates
+}
+
+fn normalize_app_id_candidate(raw: &str) -> Option<String> {
+    let trimmed = raw.trim_matches('.');
+    let dot_count = trimmed.bytes().filter(|byte| *byte == b'.').count();
+    let looks_like_bundle = dot_count >= 2 && trimmed.chars().any(|ch| ch.is_ascii_alphabetic());
+    if looks_like_bundle {
+        Some(trimmed.to_string())
+    } else {
+        None
+    }
 }
 
 #[cfg(test)]
@@ -784,8 +845,18 @@ mod tests {
             )?;
 
             let extracted = extract_attested_public_key_base64(&sample.attestation_object_base64)?;
-
+            println!("{}", extracted);
             assert_eq!(extracted, STANDARD.encode(&verified.public_key_spki_der));
+            Ok(())
+        }
+
+        #[test]
+        fn extracts_real_world_app_id() -> Result<()> {
+            let sample: RealWorldSample = serde_json::from_str(include_str!(
+                "../testdata/ios_real_world_attestation_object.txt"
+            ))?;
+
+            assert_eq!(sample.app_id()?, REAL_SAMPLE_APP_ID);
             Ok(())
         }
     }

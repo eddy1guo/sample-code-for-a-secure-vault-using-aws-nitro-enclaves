@@ -42,4 +42,12 @@ impl Attestation {
         };
         Ok(key)
     }
+
+    pub fn app_id(&self) -> Result<String, anyhow::Error> {
+        let key = match self {
+            Attestation::Google(sample) => sample.app_id()?,
+            Attestation::Apple(sample) => sample.app_id()?,
+        };
+        Ok(key)
+    }
 }

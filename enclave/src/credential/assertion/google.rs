@@ -1,7 +1,9 @@
-use anyhow::Result;
+use anyhow::{Result, bail};
 use openssl::hash::MessageDigest;
 use openssl::pkey::PKey;
 use openssl::sign::Verifier as OpenSslVerifier;
+
+use crate::codec::bs64::DecodeBs64;
 
 /// Verify an ECDSA-SHA256 signature with the public key proved by Android attestation.
 pub fn verify_attested_signature(
@@ -13,6 +15,23 @@ pub fn verify_attested_signature(
     let mut verifier = OpenSslVerifier::new(MessageDigest::sha256(), &public_key)?;
     verifier.update(message)?;
     Ok(verifier.verify(signature_der)?)
+}
+
+pub fn verify_attested_base64(
+    public_key_spki_der: &str,
+    message: &str,
+    signature_der: &str,
+) -> Result<()> {
+    let public_key_spki_der = public_key_spki_der.decode_bs64()?;
+    let signature_der = signature_der.decode_bs64()?;
+
+    let public_key = PKey::public_key_from_der(&public_key_spki_der)?;
+    let mut verifier = OpenSslVerifier::new(MessageDigest::sha256(), &public_key)?;
+    verifier.update(&message.as_bytes())?;
+    if verifier.verify(&signature_der)? {
+        bail!("verify_attested_base64 failed")
+    }
+    Ok(())
 }
 
 #[cfg(test)]

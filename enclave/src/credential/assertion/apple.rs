@@ -1,7 +1,7 @@
 use crate::credential::common::sha256_bytes;
-use anyhow::{anyhow, bail, Result};
-use base64::engine::general_purpose::STANDARD;
+use anyhow::{Result, anyhow, bail};
 use base64::Engine as _;
+use base64::engine::general_purpose::STANDARD;
 use openssl::ecdsa::EcdsaSig;
 use openssl::hash::MessageDigest;
 use openssl::pkey::PKey;
@@ -99,10 +99,10 @@ pub fn verify_assertion(
 pub fn verify_assertion_base64(
     assertion_object_base64: &str,
     public_key_spki_der_base64: &str,
-    app_id: &str,
     client_data_hash_base64: &str,
+    app_id: &str,
     previous_counter: Option<u32>,
-) -> Result<VerifiedAssertion> {
+) -> Result<u32> {
     let assertion_object = STANDARD
         .decode(assertion_object_base64)
         .map_err(|err| anyhow!("failed to base64 decode App Attest assertion object: {err}"))?;
@@ -113,13 +113,14 @@ pub fn verify_assertion_base64(
         anyhow!("failed to base64 decode App Attest assertion clientDataHash: {err}")
     })?;
 
-    verify_assertion(
+    let res = verify_assertion(
         &assertion_object,
         &public_key_spki_der,
-        app_id,
+        &app_id,
         &client_data_hash,
         previous_counter,
-    )
+    )?;
+    Ok(res.counter)
 }
 
 /// Verify an ECDSA-SHA256 signature using the public key proved by attestation.
@@ -202,7 +203,6 @@ mod tests {
     use serde::Deserialize;
     use serde::Serialize;
     use serde_bytes::ByteBuf;
-
     const REAL_SAMPLE_APP_ID: &str = "F632MRRB47.com.chainlessios.app";
 
     #[derive(Serialize)]
@@ -214,8 +214,6 @@ mod tests {
 
     #[derive(Deserialize)]
     struct RealWorldAssertionSample {
-        #[serde(rename = "keyId")]
-        _key_id: String,
         #[serde(rename = "clientDataUtf8")]
         client_data_utf8: String,
         #[serde(rename = "clientDataHashBase64")]
@@ -225,6 +223,8 @@ mod tests {
     }
 
     mod verify_attested_signature_cases {
+        use crate::codec::bs64::EncodeBs64;
+
         use super::*;
 
         #[test]
@@ -244,41 +244,11 @@ mod tests {
             )?);
             Ok(())
         }
-
-        #[test]
-        fn rejects_current_real_ios_sample_with_attestation_pubkey() -> Result<()> {
-            let key_id = "69XsNczVesfrD3W87ZNuig3HxifvwKsv352BqSFEMW8=";
-            let public_key_spki_der_base64 = "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE/UXhFba4E/qlmhA31KxQALhKCK/CkAHIiS+J+ekMPIny9TalboTGgZJ5raYO9U7vA0uZ5+sQgD2KkaU4/+H90w==";
-            let client_data_utf8 = "{\"type\":\"ios-sign-assertion\",\"keyId\":\"69XsNczVesfrD3W87ZNuig3HxifvwKsv352BqSFEMW8=\",\"issuedAt\":1777513207846,\"nonce\":\"27697292cbec3ad686a0a092f87\"}";
-            let payload_base64 = "eyJ0eXBlIjoiaW9zLXNpZ24tYXNzZXJ0aW9uIiwia2V5SWQiOiI2OVhzTmN6VmVzZnJEM1c4N1pOdWlnM0h4aWZ2d0tzdjM1MkJxU0ZFTVc4PSIsImlzc3VlZEF0IjoxNzc3NTEzMjA3ODQ2LCJub25jZSI6IjI3Njk3MjkyY2JlYzNhZDY4NmEwYTA5MmY4NyJ9";
-            let signature_base64 = "MEQCIBvpWLm/o1jW12zwayvRv8/Jhdb/uuZ2eAsKLRGR7jiNAiBNNLBUG1OANtZHTp6fJn/3XajszB8JPbg54JG2L8t6nw==";
-
-            let payload = STANDARD.decode(payload_base64)?;
-            assert_eq!(payload, client_data_utf8.as_bytes());
-
-            let public_key_spki_der = STANDARD.decode(public_key_spki_der_base64)?;
-            let signature_der = STANDARD.decode(signature_base64)?;
-
-            let high_level_verified = verify_attested_signature(
-                &public_key_spki_der,
-                client_data_utf8.as_bytes(),
-                &signature_der,
-            )?;
-
-            let public_key = PKey::public_key_from_der(&public_key_spki_der)?;
-            let ec_public_key = public_key.ec_key()?;
-            let signature = EcdsaSig::from_der(&signature_der)?;
-            let low_level_verified =
-                signature.verify(&sha256_bytes(client_data_utf8.as_bytes()), &ec_public_key)?;
-
-            assert_eq!(key_id, "69XsNczVesfrD3W87ZNuig3HxifvwKsv352BqSFEMW8=");
-            assert!(!high_level_verified);
-            assert!(!low_level_verified);
-            Ok(())
-        }
     }
 
     mod verify_assertion_cases {
+        use crate::codec::bs64::{DecodeBs64, EncodeBs64};
+
         use super::*;
 
         #[test]
@@ -303,6 +273,30 @@ mod tests {
             )?;
 
             assert_eq!(verified.counter, 1);
+            Ok(())
+        }
+
+        #[test]
+        fn accepts_real_world_sample_base64() -> Result<()> {
+            let attestation: RealWorldSample = serde_json::from_str(include_str!(
+                "../testdata/ios_real_world_attestation_object.txt"
+            ))?;
+            let assertion: RealWorldAssertionSample = serde_json::from_str(include_str!(
+                "../testdata/ios_real_world_assertion_object.txt"
+            ))?;
+
+            attestation.verify()?;
+
+            let assertion_client_data_hash =
+                sha256_bytes(assertion.client_data_utf8.as_bytes()).encode_bs64();
+            let verified_assertion = verify_assertion_base64(
+                &assertion.assertion_object_base64,
+                &attestation.pubkey()?,
+                REAL_SAMPLE_APP_ID,
+                &assertion_client_data_hash,
+                Some(0),
+            )?;
+            assert_eq!(verified_assertion, 1);
             Ok(())
         }
 
@@ -347,6 +341,7 @@ mod tests {
             let ec_public_key = public_key.ec_key()?;
             let signature = EcdsaSig::from_der(parsed_assertion.signature.as_slice())?;
             assert!(!signature.verify(&nonce, &ec_public_key)?);
+            //        verify_attested_signature(public_key_spki_der, &nonce, assertion.signature.as_slice())?
             assert!(verify_attested_signature(
                 &public_key_spki_der,
                 &nonce,

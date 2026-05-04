@@ -13,6 +13,8 @@ use strum_macros::{Display, EnumString};
 pub struct TeeClient {
     ///
     pub platform: Platform,
+    // app package name
+    pub app_id: String,
     pub pubkey: String,
     pub usage: Usage,
 }
@@ -21,15 +23,20 @@ pub struct TeeClient {
 pub struct WalletKeyBond {
     ///
     pub client_platform: Platform,
+    // app package name
+    pub app_id: String,
     pub client_pubkey: String,
     pub wallet_prikey: String,
     pub usage: Usage,
+    // null for android
+    pub counter: Option<u32>,
 }
 
 impl WalletKeyBond {
     pub fn into_tee_client(self) -> TeeClient {
         TeeClient {
             platform: self.client_platform,
+            app_id: self.app_id,
             pubkey: self.client_pubkey,
             usage: self.usage,
         }
