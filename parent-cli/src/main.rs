@@ -157,7 +157,7 @@ async fn run_basic(client: &Client, base_url: &str) -> Result<()> {
         region: REGION.to_string(),
     };
 
-    let _sign_response = post_json(
+    let sign_response = post_json(
         client,
         base_url,
         "/wallet_sign",
@@ -166,6 +166,17 @@ async fn run_basic(client: &Client, base_url: &str) -> Result<()> {
     )
     .await?;
 
+    let sign_response_doc_str = extract_first_string_value(&sign_response)
+        .context("sign_response_doc_str did not return a usable sign_response_doc_str value")?;
+
+    let wallet_sign_doc = aws::parse_cose_sign1_view(&sign_response_doc_str.decode_hex()?)?;
+    println!("create_wallet_key_doc: {:?}", wallet_sign_doc);
+    let wallet_sign_str = wallet_sign_doc.payload.user_data.unwrap();
+    let wallet_sign_res = serde_json::Value::from_str(&wallet_sign_str)?;
+    //todo: 这里的json嵌套不应该过多
+    //let verified_client = verified_client["tee_client"].to_string();
+    let wallet_sign_sig: String = serde_json::from_value(wallet_sign_res["sig"].clone()).unwrap();
+    println!("wallet_sign_sig: {}", wallet_sign_sig);
     Ok(())
 }
 
