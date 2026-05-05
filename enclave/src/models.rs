@@ -178,9 +178,9 @@ impl EnclaveRequest<WalletSignRequest> {
             "[enclave] decrypted KMS secret key {}",
             wallet_prikey_bytes.encode_bs58()
         );
-        let private_key = wallet_prikey_bytes[..=31].to_vec();
+        //let private_key = wallet_prikey_bytes[..=31].to_vec();
         //3) sign tx_hash  by wallet prikey
-        let sig = ed25519::sign(&private_key, self.request.message.as_bytes())?;
+        let sig = ed25519::sign(&wallet_prikey_bytes, self.request.message.as_bytes())?;
         Ok(sig.encode_bs58())
     }
 }

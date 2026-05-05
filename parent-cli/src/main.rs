@@ -133,10 +133,20 @@ async fn run_basic(client: &Client, base_url: &str) -> Result<()> {
         "create_wallet_key",
     )
     .await?;
-    let verified_wallet_key = extract_string_field(&create_response, "verified_wallet_key")
+    let create_wallet_key_doc_str = extract_string_field(&create_response, "verified_wallet_key")
         .or_else(|_| extract_string_field(&create_response, "encrypted_wallet_key"))
         .or_else(|_| extract_first_string_value(&create_response))
         .context("create_wallet_key did not return a usable verified_wallet_key value")?;
+
+    let create_wallet_key_doc =
+        aws::parse_cose_sign1_view(&create_wallet_key_doc_str.decode_hex()?)?;
+    println!("create_wallet_key_doc: {:?}", create_wallet_key_doc);
+    let verified_wallet_key_str = create_wallet_key_doc.payload.user_data.unwrap();
+    let verified_wallet_key = serde_json::Value::from_str(&verified_wallet_key_str)?;
+    //todo: 这里的json嵌套不应该过多
+    //let verified_client = verified_client["tee_client"].to_string();
+    let verified_wallet_key: String =
+        serde_json::from_value(verified_wallet_key["prikey"].clone()).unwrap_or_default();
 
     let sign_request = WalletSignRequest {
         verified_wallet_key,
