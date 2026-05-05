@@ -22,8 +22,7 @@ use std::slice;
 use ffi::{
     AWS_ADDRESS_MAX_LEN, AWS_NE_VSOCK_PROXY_ADDR, AWS_NE_VSOCK_PROXY_PORT, AWS_SOCKET_VSOCK_DOMAIN,
     aws_allocator, aws_byte_buf, aws_byte_buf_clean_up_secure, aws_byte_buf_from_array,
-    aws_kms_decrypt_blocking,
-    aws_nitro_enclaves_get_allocator, aws_nitro_enclaves_kms_client,
+    aws_kms_decrypt_blocking, aws_nitro_enclaves_get_allocator, aws_nitro_enclaves_kms_client,
     aws_nitro_enclaves_kms_client_config_default, aws_nitro_enclaves_kms_client_config_destroy,
     aws_nitro_enclaves_kms_client_configuration, aws_nitro_enclaves_kms_client_destroy,
     aws_nitro_enclaves_kms_client_new, aws_nitro_enclaves_library_clean_up,
@@ -53,6 +52,8 @@ pub enum Error {
     SdkKmsClientError,
     /// KMS decrypt operation failed
     SdkKmsDecryptError,
+    /// KMS encrypt operation failed
+    SdkKmsEncryptError,
 }
 
 impl fmt::Display for Error {
@@ -63,6 +64,7 @@ impl fmt::Display for Error {
             Error::SdkKmsConfigError => write!(f, "Failed to configure KMS client"),
             Error::SdkKmsClientError => write!(f, "Failed to create KMS client"),
             Error::SdkKmsDecryptError => write!(f, "KMS decrypt operation failed"),
+            Error::SdkKmsEncryptError => write!(f, "KMS encrypt operation failed"),
         }
     }
 }
@@ -452,8 +454,14 @@ pub fn kms_encrypt(
             aws_key_id.len(),
             aws_session_token.len()
         );
-        let plaintext_buf =
-            aws_byte_buf_from_array(plaintext.as_ptr() as *mut std::ffi::c_void, plaintext.len());
+        //let plaintext_buf =
+        //    aws_byte_buf_from_array(plaintext.as_ptr() as *mut std::ffi::c_void, plaintext.len());
+        let plaintext_buf = aws_byte_buf {
+            len: plaintext.len(),
+            buffer: plaintext.as_ptr() as *mut u8,
+            capacity: plaintext.len(),
+            allocator: ptr::null_mut(),
+        };
         println!(
             "kms_encrypt plaintext_buf: len={} capacity={} buffer_ptr={:?} allocator_ptr={:?}",
             plaintext_buf.len,
@@ -508,7 +516,7 @@ pub fn kms_encrypt(
             );
             resources.cleanup();
             println!("line {}", line!());
-            return Err(Error::SdkGenericError);
+            return Err(Error::SdkKmsEncryptError);
         }
 
         // Step 11: Copy ciphertext to Vec<u8>
