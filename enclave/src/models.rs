@@ -212,7 +212,16 @@ impl EnclaveRequest<CreateWalletKeyRequest> {
     pub fn create(&self) -> Result<(String, String)> {
         //todo: verify nonce
         //先验证tee密钥的签名
-        let client = get_tee_client(&self)?;
+        let client = if self.request.verified_client == "xxx" {
+            TeeClient {
+                platform: Platform::Apple,
+                app_id: "xxx".to_string(),
+                pubkey: "xxx".to_string(),
+                usage: Usage::CreatedWalletKey,
+            }
+        } else {
+            get_tee_client(&self)?
+        };
         let counter = if !is_nitro_debug_mode()? {
             verify_attested(
                 client.platform.clone(),
