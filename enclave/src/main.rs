@@ -158,6 +158,7 @@ fn handle_client<S: Read + Write>(mut stream: S) -> Result<()> {
         response
     );
 
+    //如何防止嵌套
     let payload: String = serde_json::to_string(&response)
         .map_err(|err| anyhow!("failed to serialize response: {err:?}"))?;
 

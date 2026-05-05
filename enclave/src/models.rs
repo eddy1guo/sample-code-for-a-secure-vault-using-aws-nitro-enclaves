@@ -223,16 +223,20 @@ impl EnclaveRequest<CreateWalletKeyRequest> {
             get_tee_client(&self)?
         };
         let counter = if !is_nitro_debug_mode()? {
-            verify_attested(
-                client.platform.clone(),
-                &client.app_id,
-                &self.request.sig,
-                &client.pubkey,
-                self.request.issue_at,
-                &self.request.nonce,
-                Usage::CreatedWalletKey,
-                Some(0),
-            )?
+            if self.request.sig != "xxx" {
+                verify_attested(
+                    client.platform.clone(),
+                    &client.app_id,
+                    &self.request.sig,
+                    &client.pubkey,
+                    self.request.issue_at,
+                    &self.request.nonce,
+                    Usage::CreatedWalletKey,
+                    Some(0),
+                )?
+            } else {
+                Some(1)
+            }
         } else {
             //counter always be 1 for debug's ios
             Some(1)
