@@ -6,7 +6,7 @@
 ##
 ## based on https://github.com/aws/aws-nitro-enclaves-acm/blob/main/env/enclave/Dockerfile
 ####################################################################################################
-FROM public.ecr.aws/docker/library/rust:alpine AS kmstool
+FROM public.ecr.aws/docker/library/rust:alpine@sha256:606fd313a0f49743ee2a7bd49a0914bab7deedb12791f3a846a34a4711db7ed2 AS kmstool
 
 ARG TARGETPLATFORM
 ARG SOURCE_DATE_EPOCH
@@ -202,25 +202,26 @@ COPY . .
 RUN cargo build --target $TARGETPLATFORM --color never
 
 ####################################################################################################
-## Final image
+## Runtime deps - install packages here so the final image only has COPY layers
 ####################################################################################################
-FROM public.ecr.aws/docker/library/alpine:latest AS runtime
-ARG TARGETPLATFORM
-ARG SOURCE_DATE_EPOCH
-
+FROM public.ecr.aws/docker/library/alpine:3.23.4@sha256:5b10f432ef3da1b8d4c7eb6c487f2f5a8f096bc91145e68878dd4a5019afde11 AS runtime-deps
 RUN apk add --no-cache ca-certificates libgcc
-RUN addgroup -S vault && adduser -S vault -G vault
 
-WORKDIR /app
+####################################################################################################
+## Final image - ONLY deterministic COPY and ENV, no RUN commands
+####################################################################################################
+FROM public.ecr.aws/docker/library/alpine:3.23.4@sha256:5b10f432ef3da1b8d4c7eb6c487f2f5a8f096bc91145e68878dd4a5019afde11 AS runtime
+ARG TARGETPLATFORM
+
+COPY --from=runtime-deps /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
+COPY --from=runtime-deps /usr/lib/libgcc_s.so.1 /usr/lib/libgcc_s.so.1
 
 # Copy our build
 COPY --from=builder /app/target/${TARGETPLATFORM}/debug/enclave-vault /app/enclave-vault
 
-# Copy NSM library for attestation (only dynamic library needed - others are statically linked)
+# Copy NSM library for attestation 
 COPY --from=kmstool /usr/lib/libnsm.so /usr/lib/libnsm.so
 
 ENV LD_LIBRARY_PATH="/usr/lib"
-
-RUN chmod +x /app/enclave-vault
 
 CMD ["/app/enclave-vault"]

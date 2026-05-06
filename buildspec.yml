@@ -7,7 +7,25 @@ phases:
   build:
     commands:
       - echo Build started on `date`
-      - docker buildx bake
+      - export SOURCE_DATE_EPOCH=$(git log -1 --format=%ct)
+      # Build parent image with BuildKit
+      - docker buildx bake -f docker-bake.hcl parent
+      # Build enclave image with Kaniko for reproducible PCR0
+      - mkdir -p /tmp/enclave-output
+      - >-
+        docker run --rm
+        -v $(pwd)/enclave:/workspace
+        -v /tmp/enclave-output:/output
+        gcr.io/kaniko-project/executor:v1.23.2
+        --dockerfile /workspace/Dockerfile
+        --context /workspace
+        --reproducible
+        --no-push
+        --tarPath=/output/enclave.tar
+        --destination=enclave-vault:latest
+        --build-arg TARGETPLATFORM=aarch64-unknown-linux-musl
+        --build-arg SOURCE_DATE_EPOCH=${SOURCE_DATE_EPOCH}
+      - docker load -i /tmp/enclave-output/enclave.tar
       - echo Build completed on `date`
   post_build:
     commands:
