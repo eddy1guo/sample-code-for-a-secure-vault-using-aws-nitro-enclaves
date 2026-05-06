@@ -17,6 +17,7 @@ const PLACEHOLDER_SIG: &str = "xxx";
 const PLACEHOLDER_MESSAGE: &str = "hello-wallet-sign";
 const APPLE_KEY_ID: &str = "LnxoVdHGe+HnCcwS7FCWJecITXf2KlJBoHO7/Jr4DFI=";
 
+//todo:  跑一个 安卓的case
 const APPLE_ATTESTATION_DOC: &str =
     include_str!("../../enclave/src/credential/testdata/ios_real_world_attestation_object.txt");
 

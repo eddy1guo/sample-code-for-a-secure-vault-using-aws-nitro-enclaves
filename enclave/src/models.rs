@@ -169,6 +169,7 @@ impl EnclaveRequest<WalletSignRequest> {
                 &wallet_bond.client_pubkey,
                 self.request.issue_at,
                 &self.request.nonce,
+                Some(self.request.message.clone()),
                 Usage::WalletSign,
                 wallet_bond.counter,
             )?;
@@ -230,6 +231,7 @@ impl EnclaveRequest<CreateWalletKeyRequest> {
                 &client.pubkey,
                 self.request.issue_at,
                 &self.request.nonce,
+                None::<String>,
                 Usage::CreatedWalletKey,
                 Some(0),
             )?

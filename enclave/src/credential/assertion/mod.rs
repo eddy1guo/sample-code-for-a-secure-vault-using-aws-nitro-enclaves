@@ -18,11 +18,13 @@ pub fn verify_attested(
     pubkey_base64: &str,
     issued_at: u64,
     nonce: &str,
+    message: Option<String>,
     usage: Usage,
     previous_counter: Option<u32>,
 ) -> anyhow::Result<Option<u32>> {
-    let message = json!({
+    let payload = json!({
         "type": usage,
+        "message": message,
         "issued_at": issued_at,
         "nonce": nonce,
     })
@@ -30,7 +32,7 @@ pub fn verify_attested(
     //todo: check issued_at
     match platform {
         Platform::Apple => {
-            let msg_hash = sha256_bytes(message.as_bytes()).encode_bs64();
+            let msg_hash = sha256_bytes(payload.as_bytes()).encode_bs64();
 
             apple::verify_assertion_base64(
                 assertion_object_base64,
@@ -42,7 +44,7 @@ pub fn verify_attested(
             .map(|x| Some(x))
         }
         Platform::Google => {
-            google::verify_attested_base64(&pubkey_base64, &message, &assertion_object_base64)?;
+            google::verify_attested_base64(&pubkey_base64, &payload, &assertion_object_base64)?;
             Ok(None)
         }
     }
