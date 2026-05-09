@@ -21,12 +21,12 @@ use aws_lc_rs::signature::{EcdsaKeyPair, EcdsaSigningAlgorithm};
 use rustls::crypto::hpke::HpkePrivateKey;
 use zeroize::{Zeroize, Zeroizing};
 
-use crate::credential::common::{TeeClient, Usage, WalletKeyBond};
 use crate::aws_ne;
 use crate::codec::bs58::{DecodeBs58, EncodeBs58};
 use crate::codec::bs64::EncodeBs64;
 use crate::codec::hex::DecodeHex;
 use crate::codec::json::JsonDeserialize;
+use crate::credential::common::{TeeClient, Usage, WalletKeyBond};
 use crate::models::{
     CreateWalletKeyRequest, Credential, EnclaveRequest, ParentRequest, WalletSignRequest,
 };
@@ -112,7 +112,7 @@ pub fn call_kms_encrypt(
         plaintext_bytes,
         &key_id,
     )
-    .map_err(|e| anyhow!("KMS decrypt failed: {}", e))
+    .map_err(|e| anyhow!("KMS encrypt failed: {}", e))
 }
 
 /// Decrypts and extracts the HPKE private key from a KMS-encrypted payload.

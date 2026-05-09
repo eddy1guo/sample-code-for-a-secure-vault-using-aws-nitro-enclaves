@@ -308,6 +308,12 @@ mod tests {
             let assertion: RealWorldAssertionSample = serde_json::from_str(include_str!(
                 "../testdata/ios_real_world_assertion_object.txt"
             ))?;
+            let attestation: RealWorldSample = serde_json::from_str(include_str!(
+                "../testdata/ios_real_world_attestation_object2.txt"
+            ))?;
+            let assertion: RealWorldAssertionSample = serde_json::from_str(include_str!(
+                "../testdata/ios_real_world_assertion_object2.txt"
+            ))?;
 
             attestation.verify()?;
 

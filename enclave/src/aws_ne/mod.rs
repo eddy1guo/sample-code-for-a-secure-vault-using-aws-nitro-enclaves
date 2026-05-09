@@ -17,12 +17,14 @@ use std::fmt;
 use std::ptr;
 #[cfg(target_env = "musl")]
 use std::slice;
+#[cfg(target_env = "musl")]
+use std::sync::{Mutex, MutexGuard};
 
 #[cfg(target_env = "musl")]
 use ffi::{
     AWS_ADDRESS_MAX_LEN, AWS_NE_VSOCK_PROXY_ADDR, AWS_NE_VSOCK_PROXY_PORT, AWS_SOCKET_VSOCK_DOMAIN,
-    aws_allocator, aws_byte_buf, aws_byte_buf_clean_up_secure, aws_byte_buf_from_array,
-    aws_kms_decrypt_blocking, aws_nitro_enclaves_get_allocator, aws_nitro_enclaves_kms_client,
+    aws_allocator, aws_byte_buf, aws_byte_buf_clean_up_secure, aws_kms_decrypt_blocking,
+    aws_nitro_enclaves_get_allocator, aws_nitro_enclaves_kms_client,
     aws_nitro_enclaves_kms_client_config_default, aws_nitro_enclaves_kms_client_config_destroy,
     aws_nitro_enclaves_kms_client_configuration, aws_nitro_enclaves_kms_client_destroy,
     aws_nitro_enclaves_kms_client_new, aws_nitro_enclaves_library_clean_up,
@@ -71,6 +73,20 @@ impl fmt::Display for Error {
 
 impl std::error::Error for Error {}
 
+#[cfg(target_env = "musl")]
+static KMS_FFI_MUTEX: Mutex<()> = Mutex::new(());
+
+#[cfg(target_env = "musl")]
+fn lock_kms_ffi() -> MutexGuard<'static, ()> {
+    match KMS_FFI_MUTEX.lock() {
+        Ok(guard) => guard,
+        Err(poisoned) => {
+            eprintln!("[enclave warning] KMS FFI mutex was poisoned, continuing");
+            poisoned.into_inner()
+        }
+    }
+}
+
 /// Helper struct to track allocated resources for cleanup
 #[cfg(target_env = "musl")]
 struct KmsResources {
@@ -82,6 +98,7 @@ struct KmsResources {
     config: *mut aws_nitro_enclaves_kms_client_configuration,
     client: *mut aws_nitro_enclaves_kms_client,
     plaintext_buf: Option<aws_byte_buf>,
+    ciphertext_buf: Option<aws_byte_buf>,
 }
 
 #[cfg(target_env = "musl")]
@@ -96,6 +113,7 @@ impl KmsResources {
             config: ptr::null_mut(),
             client: ptr::null_mut(),
             plaintext_buf: None,
+            ciphertext_buf: None,
         }
     }
 
@@ -112,6 +130,10 @@ impl KmsResources {
             unsafe { aws_byte_buf_clean_up_secure(buf) };
         }
         self.plaintext_buf = None;
+        if let Some(ref mut buf) = self.ciphertext_buf {
+            unsafe { aws_byte_buf_clean_up_secure(buf) };
+        }
+        self.ciphertext_buf = None;
 
         // Destroy KMS client
         if !self.client.is_null() {
@@ -187,6 +209,7 @@ pub fn kms_decrypt(
     aws_session_token: &[u8],
     ciphertext: &[u8],
 ) -> Result<Vec<u8>, Error> {
+    let _ffi_guard = lock_kms_ffi();
     let mut resources = KmsResources::new();
 
     unsafe {
@@ -340,6 +363,7 @@ pub fn kms_encrypt(
     plaintext: &[u8],
     key_id: &str,
 ) -> Result<Vec<u8>, Error> {
+    let _ffi_guard = lock_kms_ffi();
     unsafe {
         let mut resources = KmsResources::new();
 
@@ -500,6 +524,7 @@ pub fn kms_encrypt(
             let err_code = aws_last_error();
             let err_msg = aws_error_str(err_code);
             let msg = std::ffi::CStr::from_ptr(err_msg as *const std::ffi::c_char);
+            resources.ciphertext_buf = Some(ciphertext_buf);
             println!(
                 "KMS encrypt failed: rc={}, err_code={}, msg={:?}, plaintext_buf(len={}, cap={}, ptr={:?}, alloc={:?}), ciphertext_buf(len={}, cap={}, ptr={:?}, alloc={:?})",
                 rc,
@@ -528,6 +553,7 @@ pub fn kms_encrypt(
         };
 
         // Step 12: Cleanup
+        resources.ciphertext_buf = Some(ciphertext_buf);
         println!("line {}", line!());
         resources.cleanup();
 

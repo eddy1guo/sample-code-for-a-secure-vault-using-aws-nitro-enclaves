@@ -1,9 +1,9 @@
 use crate::codec::bs64::DecodeBs64;
 use crate::credential::common::{
-    certificate_extension_value, find_context_specific, load_pem_certificates, parse_der,
-    verify_cert_chain, DerElement,
+    DerElement, certificate_extension_value, find_context_specific, load_pem_certificates,
+    parse_der, verify_cert_chain,
 };
-use anyhow::{anyhow, bail, Result};
+use anyhow::{Result, anyhow, bail};
 use openssl::x509::X509;
 use serde::Deserialize;
 use std::collections::BTreeMap;
@@ -627,8 +627,8 @@ fn parse_verified_boot_state(value: u64) -> Result<VerifiedBootState> {
 mod tests {
     use super::*;
     use crate::credential::common::sha256_bytes;
-    use base64::engine::general_purpose::STANDARD;
     use base64::Engine as _;
+    use base64::engine::general_purpose::STANDARD;
     use openssl::asn1::{Asn1Object, Asn1OctetString, Asn1Time};
     use openssl::bn::BigNum;
     use openssl::ec::{EcGroup, EcKey};
@@ -636,7 +636,7 @@ mod tests {
     use openssl::nid::Nid;
     use openssl::pkey::{PKey, Private};
     use openssl::x509::extension::{BasicConstraints, KeyUsage};
-    use openssl::x509::{X509Extension, X509NameBuilder, X509};
+    use openssl::x509::{X509, X509Extension, X509NameBuilder};
     use std::fs;
     use std::path::PathBuf;
 
@@ -812,14 +812,18 @@ mod tests {
             verify_real_world_sample("testdata/android_xiaomi_real_world_attestation_object.txt")?;
             verify_real_world_sample("testdata/android_vivo_real_world_attestation_object.txt")?;
 
-            assert!(verify_real_world_sample(
-                "testdata/android_samsung_real_world_attestation_object.txt"
-            )
-            .is_err());
-            assert!(verify_real_world_sample(
-                "testdata/android_hongmeng_real_world_attestation_object.txt"
-            )
-            .is_err());
+            assert!(
+                verify_real_world_sample(
+                    "testdata/android_samsung_real_world_attestation_object.txt"
+                )
+                .is_err()
+            );
+            assert!(
+                verify_real_world_sample(
+                    "testdata/android_hongmeng_real_world_attestation_object.txt"
+                )
+                .is_err()
+            );
             Ok(())
         }
 

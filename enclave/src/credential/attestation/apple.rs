@@ -2,9 +2,9 @@ use crate::codec::bs64::DecodeBs64;
 use crate::credential::common::{
     certificate_extension_value, load_pem_certificates, parse_der, sha256_bytes, verify_cert_chain,
 };
-use anyhow::{anyhow, bail, Result};
-use base64::engine::general_purpose::{STANDARD, STANDARD_NO_PAD, URL_SAFE, URL_SAFE_NO_PAD};
+use anyhow::{Result, anyhow, bail};
 use base64::Engine as _;
+use base64::engine::general_purpose::{STANDARD, STANDARD_NO_PAD, URL_SAFE, URL_SAFE_NO_PAD};
 use openssl::bn::BigNumContext;
 use openssl::ec::PointConversionForm;
 use openssl::pkey::{PKey, Public};
@@ -618,7 +618,7 @@ mod tests {
     use openssl::nid::Nid;
     use openssl::pkey::{PKey, Private};
     use openssl::x509::extension::{BasicConstraints, KeyUsage};
-    use openssl::x509::{X509Extension, X509NameBuilder, X509};
+    use openssl::x509::{X509, X509Extension, X509NameBuilder};
     use serde::Serialize;
     use serde_bytes::ByteBuf;
 

@@ -106,6 +106,7 @@ async fn run_basic(client: &Client, base_url: &str) -> Result<()> {
         "tee_client_register",
     )
     .await?;
+    println!("tee_response: {:?}", tee_response);
     let register_doc_str = extract_string_field(&tee_response, "verified_client")
         .or_else(|_| extract_first_string_value(&tee_response))
         .context("tee_client_register did not return a usable verified_client value")?;
@@ -134,6 +135,8 @@ async fn run_basic(client: &Client, base_url: &str) -> Result<()> {
         "create_wallet_key",
     )
     .await?;
+    println!("create_response: {:?}", create_response);
+
     let create_wallet_key_doc_str = extract_string_field(&create_response, "verified_wallet_key")
         .or_else(|_| extract_string_field(&create_response, "encrypted_wallet_key"))
         .or_else(|_| extract_first_string_value(&create_response))
@@ -166,6 +169,7 @@ async fn run_basic(client: &Client, base_url: &str) -> Result<()> {
         "wallet_sign",
     )
     .await?;
+    println!("sign_response: {:?}", sign_response);
 
     let sign_response_doc_str = extract_first_string_value(&sign_response)
         .context("sign_response_doc_str did not return a usable sign_response_doc_str value")?;
