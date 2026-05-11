@@ -524,7 +524,6 @@ pub fn kms_encrypt(
             let err_code = aws_last_error();
             let err_msg = aws_error_str(err_code);
             let msg = std::ffi::CStr::from_ptr(err_msg as *const std::ffi::c_char);
-            resources.ciphertext_buf = Some(ciphertext_buf);
             println!(
                 "KMS encrypt failed: rc={}, err_code={}, msg={:?}, plaintext_buf(len={}, cap={}, ptr={:?}, alloc={:?}), ciphertext_buf(len={}, cap={}, ptr={:?}, alloc={:?})",
                 rc,
@@ -539,6 +538,7 @@ pub fn kms_encrypt(
                 ciphertext_buf.buffer,
                 ciphertext_buf.allocator
             );
+            resources.ciphertext_buf = Some(ciphertext_buf);
             resources.cleanup();
             println!("line {}", line!());
             return Err(Error::SdkKmsEncryptError);
