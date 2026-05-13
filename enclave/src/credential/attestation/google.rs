@@ -95,6 +95,47 @@ pub struct RealWorldSample {
     attestation_cert_chain_base64: Vec<String>,
 }
 
+pub fn verify_attestation(
+    attestation_challenge_base64: &str,
+    public_key_base64: &str,
+    attestation_cert_chain_base64: &[String],
+    package_name: &str,
+) -> Result<()> {
+    let challenge = attestation_challenge_base64.decode_bs64()?;
+    let expected_public_key = public_key_base64.decode_bs64()?;
+    let chain = attestation_cert_chain_base64
+        .iter()
+        .map(|cert| cert.decode_bs64().map_err(anyhow::Error::from))
+        .collect::<Result<Vec<Vec<u8>>>>()?;
+    let requirements = KeyAttestationRequirements {
+        challenge: &challenge,
+        root_pems: &[],
+        expected_package_name: Some(package_name),
+        expected_signature_digests: &[],
+        require_hardware_backed: true,
+        require_verified_boot: true,
+    };
+
+    let verified = verify_google_attestation(&chain, &requirements, None)?;
+    //todo: return error
+    assert_eq!(verified.challenge, challenge);
+    assert_eq!(verified.public_key_spki_der, expected_public_key);
+    assert!(verified.root_of_trust.device_locked);
+    assert_eq!(
+        verified.root_of_trust.verified_boot_state,
+        VerifiedBootState::Verified
+    );
+    assert_eq!(
+        verified
+            .application_id
+            .as_ref()
+            .expect("application id")
+            .package_names,
+        vec![package_name.to_string()]
+    );
+    Ok(())
+}
+
 impl RealWorldSample {
     pub fn verify(&self) -> Result<()> {
         let challenge = self.attestation_challenge_base64.decode_bs64()?;

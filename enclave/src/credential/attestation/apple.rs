@@ -518,6 +518,10 @@ pub struct RealWorldSample {
     attestation_object_base64: String,
 }
 
+pub fn verify_attestation(client_data_utf8: &str, attestation_object_base64: &str) -> Result<()> {
+    todo!()
+}
+
 impl RealWorldSample {
     pub fn pubkey(&self) -> Result<String> {
         extract_attested_public_key_base64(&self.attestation_object_base64)
