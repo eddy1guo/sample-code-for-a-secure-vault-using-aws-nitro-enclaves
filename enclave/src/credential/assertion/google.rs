@@ -84,6 +84,9 @@ mod tests {
             let sample: RealWorldAssertionSample = serde_json::from_str(include_str!(
                 "../testdata/android_xiaomi_real_world_assertion_object.txt"
             ))?;
+            let sample: RealWorldAssertionSample = serde_json::from_str(include_str!(
+                "../testdata/android_xiaomi_real_world_assertion_object2.txt"
+            ))?;
             let payload = STANDARD.decode(&sample.payload_base64)?;
             assert_eq!(payload, sample.client_data_utf8.as_bytes());
 

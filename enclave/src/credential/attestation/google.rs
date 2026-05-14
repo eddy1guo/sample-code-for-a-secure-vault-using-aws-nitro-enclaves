@@ -95,7 +95,7 @@ pub struct RealWorldSample {
     attestation_cert_chain_base64: Vec<String>,
 }
 
-pub fn verify_attestation(
+pub fn verify_attestation2(
     attestation_challenge_base64: &str,
     public_key_base64: &str,
     attestation_cert_chain_base64: &[String],
@@ -851,6 +851,7 @@ mod tests {
         fn accepts_supported_real_world_samples_and_rejects_known_failures() -> Result<()> {
             verify_real_world_sample("testdata/android_google_real_world_attestation_object.txt")?;
             verify_real_world_sample("testdata/android_xiaomi_real_world_attestation_object.txt")?;
+            verify_real_world_sample("testdata/android_xiaomi_real_world_attestation_object2.txt")?;
             verify_real_world_sample("testdata/android_vivo_real_world_attestation_object.txt")?;
 
             assert!(

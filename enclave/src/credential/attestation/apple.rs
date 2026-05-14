@@ -518,7 +518,7 @@ pub struct RealWorldSample {
     attestation_object_base64: String,
 }
 
-pub fn verify_attestation(client_data_utf8: &str, attestation_object_base64: &str) -> Result<()> {
+pub fn verify_attestation2(client_data_utf8: &str, attestation_object_base64: &str) -> Result<()> {
     todo!()
 }
 
