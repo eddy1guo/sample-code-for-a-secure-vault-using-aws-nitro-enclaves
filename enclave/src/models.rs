@@ -40,6 +40,7 @@ use serde_json::{Value, json};
 use zeroize::ZeroizeOnDrop;
 
 use crate::codec::bs58::{DecodeBs58, EncodeBs58};
+use crate::codec::bs64::DecodeBs64;
 use crate::codec::hex::{DecodeHex, EncodeHex};
 use crate::codec::json::JsonSerialize;
 use crate::constants::{ENCODING_BINARY, ENCODING_HEX, MAX_FIELDS, P256, P384, P521};
@@ -109,9 +110,22 @@ pub struct EnclaveRequest<T> {
 pub struct WalletSignRequest {
     /// encrypted data,contain client pubkey and identity key  on chain
     pub verified_wallet_key: String,
+    //todo: add confirm create_key assertion
+    //todo: rename sign_assertion,
     pub sig: String,
     //txid
     pub message: String,
+    pub issue_at: u64,
+    pub nonce: String,
+    pub region: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WalletRecoveryRequest {
+    /// encrypted data,contain client pubkey and identity key  on chain
+    pub verified_wallet_key: String,
+    // todo: 再想，
+    pub pwd_hash: String,
     pub issue_at: u64,
     pub nonce: String,
     pub region: String,
@@ -181,15 +195,19 @@ impl EnclaveRequest<WalletSignRequest> {
         );
         //let private_key = wallet_prikey_bytes[..=31].to_vec();
         //3) sign tx_hash  by wallet prikey
-        let sig = ed25519::sign(&wallet_prikey_bytes, self.request.message.as_bytes())?;
+        //todo: message 这里要进行bs64编码，现在uft8不行
+        let msg_bytes = self.request.message.decode_bs64()?;
+        let sig = ed25519::sign(&wallet_prikey_bytes, &msg_bytes)?;
         Ok(sig.encode_bs58())
     }
 }
 
+//todo: 仅主设备可以create，并且指定要绑定的tee_device_pubkey
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CreateWalletKeyRequest {
     //json string of tee client
     pub verified_client: String,
+    //todo: bond_device_pubkey
     pub sig: String,
     pub issue_at: u64,
     pub nonce: String,
@@ -210,6 +228,7 @@ impl EnclaveRequest<CreateWalletKeyRequest> {
         )
         .map_err(|err| anyhow!("failed to call KMS:call_kms_encrypt: {err:?}"))
     }
+    //todo: 暂时先做成只有住设备由权限创建key，并且指定要绑定的device_pubkey
     pub fn create(&self) -> Result<(String, String)> {
         //todo: verify nonce
         //先验证tee密钥的签名

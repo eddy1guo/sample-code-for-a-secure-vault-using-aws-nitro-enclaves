@@ -26,6 +26,7 @@ pub struct WalletKeyBond {
     // app package name
     pub app_id: String,
     pub client_pubkey: String,
+    //todo: pwd_pubkey: String,
     pub wallet_prikey: String,
     pub usage: Usage,
     // null for android

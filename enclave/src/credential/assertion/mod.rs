@@ -11,6 +11,7 @@ use crate::{
     credential::common::{Platform, TeeClient, Usage, sha256_bytes},
 };
 
+//todo: rename verify_assertion
 pub fn verify_attested(
     platform: Platform,
     app_id: &str,
