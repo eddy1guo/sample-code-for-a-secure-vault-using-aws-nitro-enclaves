@@ -2,7 +2,7 @@ use std::str::FromStr;
 
 use anyhow::{Context, Result, bail};
 use clap::{Parser, Subcommand};
-use enclave_vault::codec::hex::DecodeHex;
+use enclave_vault::codec::{bs64::EncodeBs64, hex::DecodeHex};
 use enclave_vault::credential::aws;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
@@ -155,7 +155,7 @@ async fn run_basic(client: &Client, base_url: &str) -> Result<()> {
     let sign_request = WalletSignRequest {
         verified_wallet_key,
         sig: PLACEHOLDER_SIG.to_string(),
-        message: PLACEHOLDER_MESSAGE.to_string(),
+        message: PLACEHOLDER_MESSAGE.to_string().as_bytes().encode_bs64(),
         issue_at: ISSUE_AT,
         nonce: NONCE.to_string(),
         region: REGION.to_string(),

@@ -101,15 +101,13 @@ fn detect_nitro_debug_mode() -> Result<bool> {
     };
     let doc: AttestationDoc = serde_cbor::from_slice(payload_bytes)
         .map_err(|err| anyhow!("failed to decode attestation payload: {err}"))?;
-
+    println!("PCRs: {:?}", doc.pcrs);
     if doc.pcrs.is_empty() {
         bail!("attestation document does not contain PCRs");
     }
+    let pcr0 = doc.pcrs.get(&0).ok_or(anyhow!("prc0 is none"))?;
 
-    Ok(doc
-        .pcrs
-        .values()
-        .all(|pcr| pcr.iter().all(|byte| *byte == 0)))
+    Ok(pcr0.iter().all(|byte| *byte == 0))
 }
 
 fn parse_cose_sign1(raw: &[u8]) -> Result<CoseSign1Doc> {
