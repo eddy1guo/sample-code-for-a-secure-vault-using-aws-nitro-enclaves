@@ -3,7 +3,7 @@
 
 use aws_lc_rs::digest;
 use cel_interpreter::{FunctionContext, ResolveResult, extractors::This};
-use chrono::{DateTime, FixedOffset, NaiveDate, NaiveTime, TimeZone, Utc};
+use chrono::{DateTime, FixedOffset, NaiveDate, NaiveTime, TimeZone, Utc, prelude::*};
 use data_encoding::{BASE64, HEXLOWER};
 use std::sync::Arc;
 
@@ -141,7 +141,7 @@ pub fn age(This(this): This<DateTime<FixedOffset>>) -> ResolveResult {
 }
 
 pub fn now_millis() -> u64 {
-    chrono::prelude::Local::now().timestamp_millis() as u64
+    Local::now().timestamp_millis() as u64
 }
 
 pub fn now_secs() -> u64 {

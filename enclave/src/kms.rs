@@ -192,7 +192,7 @@ pub fn get_wallet_private_key(payload: &EnclaveRequest<WalletSignRequest>) -> Re
     println!("{}:{}", file!(), line!());
     let plaintext_sk = call_kms_decrypt(
         &payload.credential,
-        &payload.request.verified_wallet_key, // base64 encoded
+        &payload.request.key_bond_ciphertext, // base64 encoded
         &payload.request.region,
     )
     .map_err(|err| anyhow!("failed to call KMS: {err:?}"))?;
@@ -218,7 +218,7 @@ pub fn get_tee_client(payload: &EnclaveRequest<CreateWalletKeyRequest>) -> Resul
     println!("{}:{}", file!(), line!());
     let plaintext = call_kms_decrypt(
         &payload.credential,
-        &payload.request.verified_client,
+        &payload.request.device_ciphertext,
         &payload.request.region,
     )
     .map_err(|err| anyhow!("failed to call KMS: {err:?}"))?;
@@ -240,7 +240,7 @@ pub fn get_wallet_key_bond(payload: &EnclaveRequest<WalletSignRequest>) -> Resul
     println!("{}:{}", file!(), line!());
     let plaintext = call_kms_decrypt(
         &payload.credential,
-        &payload.request.verified_wallet_key,
+        &payload.request.key_bond_ciphertext,
         &payload.request.region,
     )
     .map_err(|err| anyhow!("failed to call KMS: {err:?}"))?;

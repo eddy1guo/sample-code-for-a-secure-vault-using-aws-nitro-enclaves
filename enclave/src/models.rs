@@ -163,10 +163,11 @@ pub struct EnclaveRequest<T> {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WalletSignRequest {
     /// encrypted data,contain client pubkey and identity key  on chain
-    pub verified_wallet_key: String,
+    pub key_bond_ciphertext: String,
+    pub key_bond_confirmed_assertion: String,
     pub pwd_sig: String,
     //todo: add confirm create_key assertion
-    pub assertion: String,
+    pub sign_assertion: String,
     //txid
     pub message: String,
     pub issue_at: u64,
@@ -198,12 +199,12 @@ impl EnclaveRequest<WalletSignRequest> {
     }
     pub fn validate(&self) -> Result<()> {
         // Validate vault_id is non-empty
-        if self.request.verified_wallet_key.is_empty() {
+        if self.request.key_bond_ciphertext.is_empty() {
             println!("vault_id cannot be empty");
             Err(anyhow!(super::error::Error::ParamsInvalid.to_json()))?;
         }
 
-        if self.request.assertion.is_empty() {
+        if self.request.sign_assertion.is_empty() {
             println!("in product mode,signature can't be none");
             Err(anyhow!(super::error::Error::ParamsInvalid.to_json()))?;
         }
@@ -259,11 +260,12 @@ impl EnclaveRequest<WalletSignRequest> {
             //todo: verify pwd_sig
             //todo: check if expires
             //todo: check nonce
+            //todo: check key_bond_confirmed_assertion
 
             verify_assertion(
                 wallet_bond.client_platform,
                 &wallet_bond.app_id,
-                &self.request.assertion,
+                &self.request.sign_assertion,
                 &wallet_bond.tee_device_pubkey,
                 wallet_bond.counter,
                 &self.sign_payload(),
@@ -291,11 +293,11 @@ impl EnclaveRequest<WalletSignRequest> {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CreateWalletKeyRequest {
     //json string of tee client
-    pub verified_client: String,
-    //todo: bond_device_pubkey
+    pub device_ciphertext: String,
+    pub device_confirmed_assertion: String,
     pub pwd_pubkey: String,
     pub pwd_sig: String,
-    pub assertion: String,
+    pub create_key_assertion: String,
     pub issue_at: u64,
     pub nonce: String,
     pub key_id: String,
@@ -350,10 +352,11 @@ impl EnclaveRequest<CreateWalletKeyRequest> {
             //todo: verify pwd_sig by ed25519
             //todo: check nonce
             //todo: check expires
+            //todo: check CreateWalletKeyRequest
             verify_assertion(
                 client.platform.clone(),
                 &client.app_id,
-                &self.request.assertion,
+                &self.request.create_key_assertion,
                 &client.pubkey,
                 Some(0),
                 &self.sign_payload(),
