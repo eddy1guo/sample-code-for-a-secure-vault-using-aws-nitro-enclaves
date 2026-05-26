@@ -11,26 +11,14 @@ use crate::{
     credential::common::{Platform, TeeClient, Usage, sha256_bytes},
 };
 
-//todo: rename verify_assertion
-pub fn verify_attested(
+pub fn verify_assertion(
     platform: Platform,
     app_id: &str,
     assertion_object_base64: &str,
     pubkey_base64: &str,
-    issued_at: u64,
-    nonce: &str,
-    message: Option<String>,
-    usage: Usage,
     previous_counter: Option<u32>,
+    payload: &str,
 ) -> anyhow::Result<Option<u32>> {
-    let payload = json!({
-        "type": usage,
-        "message": message,
-        "issued_at": issued_at,
-        "nonce": nonce,
-    })
-    .to_string();
-    //todo: check issued_at
     match platform {
         Platform::Apple => {
             let msg_hash = sha256_bytes(payload.as_bytes()).encode_bs64();

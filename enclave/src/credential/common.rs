@@ -25,8 +25,8 @@ pub struct WalletKeyBond {
     pub client_platform: Platform,
     // app package name
     pub app_id: String,
-    pub client_pubkey: String,
-    //todo: pwd_pubkey: String,
+    pub tee_device_pubkey: String,
+    pub pwd_pubkey: String,
     pub wallet_prikey: String,
     pub usage: Usage,
     // null for android
@@ -38,7 +38,7 @@ impl WalletKeyBond {
         TeeClient {
             platform: self.client_platform,
             app_id: self.app_id,
-            pubkey: self.client_pubkey,
+            pubkey: self.tee_device_pubkey,
             usage: self.usage,
         }
     }
@@ -55,6 +55,7 @@ pub enum Usage {
     TeeClientRegister,
     CreatedWalletKey,
     WalletSign,
+    WalletRecovery,
 }
 
 pub fn sha256_bytes(data: &[u8]) -> Vec<u8> {

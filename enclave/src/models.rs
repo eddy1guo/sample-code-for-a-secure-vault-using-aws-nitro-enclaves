@@ -44,9 +44,9 @@ use crate::codec::bs64::DecodeBs64;
 use crate::codec::hex::{DecodeHex, EncodeHex};
 use crate::codec::json::JsonSerialize;
 use crate::constants::{ENCODING_BINARY, ENCODING_HEX, MAX_FIELDS, P256, P384, P521};
-use crate::credential::assertion::verify_attested;
+use crate::credential::assertion::verify_assertion;
 use crate::credential::attestation::Attestation;
-use crate::credential::aws::{get_attestation_document, is_nitro_debug_mode};
+use crate::credential::aws::{get_attestation_document, is_debug_mode};
 use crate::credential::common::{Platform, TeeClient, Usage, WalletKeyBond};
 
 use crate::ed25519::{self, new_key_pair};
@@ -110,9 +110,9 @@ pub struct EnclaveRequest<T> {
 pub struct WalletSignRequest {
     /// encrypted data,contain client pubkey and identity key  on chain
     pub verified_wallet_key: String,
+    pub pwd_sig: String,
     //todo: add confirm create_key assertion
-    //todo: rename sign_assertion,
-    pub sig: String,
+    pub assertion: String,
     //txid
     pub message: String,
     pub issue_at: u64,
@@ -123,22 +123,32 @@ pub struct WalletSignRequest {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WalletRecoveryRequest {
     /// encrypted data,contain client pubkey and identity key  on chain
-    pub verified_wallet_key: String,
+    pub verified_wallet_key: Vec<String>,
     // todo: 再想，
-    pub pwd_hash: String,
+    pub new_pwd_pubkey: String,
+    pub new_pwd_sig: String,
     pub issue_at: u64,
     pub nonce: String,
     pub region: String,
 }
 
 impl EnclaveRequest<WalletSignRequest> {
+    pub fn sign_payload(&self) -> String {
+        json!({
+            "type": Usage::WalletSign,
+            "message": self.request.message,
+            "issued_at": self.request.issue_at,
+            "nonce": self.request.nonce,
+        })
+        .to_string()
+    }
     pub fn validate(&self) -> Result<()> {
         // Validate vault_id is non-empty
         if self.request.verified_wallet_key.is_empty() {
             bail!("vault_id cannot be empty");
         }
 
-        if !is_nitro_debug_mode()? && self.request.sig.is_empty() {
+        if !is_debug_mode()? && self.request.assertion.is_empty() {
             bail!("in product mode,signature can't be none");
         }
 
@@ -175,17 +185,20 @@ impl EnclaveRequest<WalletSignRequest> {
 
         //2) check tee client signature by tee pubkey
         //let tee_client = wallet_bond.clone().into_tee_client();
-        if !is_nitro_debug_mode()? && self.request.sig != "xxx" {
-            verify_attested(
+        if is_debug_mode()? {
+            println!("skip verification for debug mode");
+        } else {
+            //todo: verify pwd_sig
+            //todo: check if expires
+            //todo: check nonce
+
+            verify_assertion(
                 wallet_bond.client_platform,
                 &wallet_bond.app_id,
-                &self.request.sig,
-                &wallet_bond.client_pubkey,
-                self.request.issue_at,
-                &self.request.nonce,
-                Some(self.request.message.clone()),
-                Usage::WalletSign,
+                &self.request.assertion,
+                &wallet_bond.tee_device_pubkey,
                 wallet_bond.counter,
+                &self.sign_payload(),
             )?;
         }
         let wallet_prikey_bytes = wallet_bond.wallet_prikey.decode_bs58()?;
@@ -208,13 +221,23 @@ pub struct CreateWalletKeyRequest {
     //json string of tee client
     pub verified_client: String,
     //todo: bond_device_pubkey
-    pub sig: String,
+    pub pwd_pubkey: String,
+    pub pwd_sig: String,
+    pub assertion: String,
     pub issue_at: u64,
     pub nonce: String,
     pub key_id: String,
     pub region: String,
 }
 impl EnclaveRequest<CreateWalletKeyRequest> {
+    pub fn sign_payload(&self) -> String {
+        json!({
+            "type": Usage::CreatedWalletKey,
+            "issued_at": self.request.issue_at,
+            "nonce": self.request.nonce,
+        })
+        .to_string()
+    }
     pub fn validate(&self) -> Result<()> {
         todo!()
     }
@@ -232,38 +255,31 @@ impl EnclaveRequest<CreateWalletKeyRequest> {
     pub fn create(&self) -> Result<(String, String)> {
         //todo: verify nonce
         //先验证tee密钥的签名
-        let client = if self.request.verified_client == "xxx" {
-            TeeClient {
-                platform: Platform::Apple,
-                app_id: "xxx".to_string(),
-                pubkey: "xxx".to_string(),
-                usage: Usage::CreatedWalletKey,
-            }
-        } else {
-            get_tee_client(&self)?
-        };
-        let counter = if !is_nitro_debug_mode()? && self.request.sig != "xxx" {
-            verify_attested(
-                client.platform.clone(),
-                &client.app_id,
-                &self.request.sig,
-                &client.pubkey,
-                self.request.issue_at,
-                &self.request.nonce,
-                None::<String>,
-                Usage::CreatedWalletKey,
-                Some(0),
-            )?
-        } else {
+        let client = get_tee_client(&self)?;
+        let counter = if is_debug_mode()? {
+            println!("skip verification for debug mode");
             //counter always be 1 for debug's ios
             Some(1)
+        } else {
+            //todo: verify pwd_sig by ed25519
+            //todo: check nonce
+            //todo: check expires
+            verify_assertion(
+                client.platform.clone(),
+                &client.app_id,
+                &self.request.assertion,
+                &client.pubkey,
+                Some(0),
+                &self.sign_payload(),
+            )?
         };
         let key_pair = new_key_pair();
         let wallet_prikey = key_pair.0.encode_bs58();
         let wallet_pubkey = key_pair.1.encode_bs58();
         let plaint_text = WalletKeyBond {
             client_platform: client.platform,
-            client_pubkey: client.pubkey,
+            tee_device_pubkey: client.pubkey,
+            pwd_pubkey: self.request.pwd_pubkey.clone(),
             wallet_prikey: wallet_prikey.clone(),
             usage: Usage::CreatedWalletKey,
             app_id: client.app_id,

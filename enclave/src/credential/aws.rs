@@ -75,7 +75,7 @@ pub fn get_attestation_document(user_data: &[u8], nonce: &[u8]) -> Result<Vec<u8
     }
 }
 
-pub fn is_nitro_debug_mode() -> Result<bool> {
+pub fn is_debug_mode() -> Result<bool> {
     let mut cached = NITRO_DEBUG_MODE
         .lock()
         .map_err(|_| anyhow!("nitro debug mode cache lock poisoned"))?;

@@ -346,7 +346,8 @@ pub struct WalletSignRequest {
     /// HPKE encrypted private key, hex encoded.
     #[validate(length(min = 1, max = "MAX_ENCRYPTED_KEY_LENGTH"))]
     pub verified_wallet_key: String,
-    pub sig: String,
+    pub pwd_sig: String,
+    pub assertion: String,
     #[validate(length(min = 1, max = 1000000000))]
     pub message: String,
     pub issue_at: u64,
@@ -369,7 +370,9 @@ pub struct WalletSignResponse {
 pub struct CreateWalletKeyRequest {
     #[validate(length(min = 1, max = 1000000000))]
     pub verified_client: String,
-    pub sig: String,
+    pub pwd_pubkey: String,
+    pub pwd_sig: String,
+    pub assertion: String,
     pub issue_at: u64,
     pub nonce: String,
     pub key_id: String,
