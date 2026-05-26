@@ -50,12 +50,66 @@ use crate::credential::aws::{get_attestation_document, is_debug_mode};
 use crate::credential::common::{Platform, TeeClient, Usage, WalletKeyBond};
 
 use crate::ed25519::{self, new_key_pair};
+use crate::functions::{now_millis, now_secs};
 use crate::hpke::decrypt_value;
 use crate::kms::{
     SecureHpkePrivateKey, call_kms_encrypt, get_secret_key, get_tee_client, get_wallet_key_bond,
     get_wallet_private_key,
 };
 use crate::utils::base64_decode;
+
+use std::{
+    sync::LazyLock,
+    time::{SystemTime, UNIX_EPOCH},
+};
+
+use tokio::sync::RwLock;
+
+const MAX_NONCE_CACHE: usize = 1000;
+//pub const NONCE_EXPIRE_SECONDS: u64 = 10 * 1000;
+pub const NONCE_EXPIRE_SECONDS: u64 = 24 * 60 * 60 * 1000;
+
+static NONCE_CACHE: LazyLock<RwLock<HashMap<String, u64>>> =
+    LazyLock::new(|| RwLock::new(HashMap::new()));
+
+pub async fn check_and_insert_nonce(now: u64, nonce: &str, issued_at: u64) -> bool {
+    let mut map = NONCE_CACHE.write().await;
+
+    // 1. 清理过期 nonce
+    map.retain(|_, ts| now.saturating_sub(*ts) <= NONCE_EXPIRE_SECONDS);
+
+    // 2. 如果超过容量，直接跳过 nonce 检查
+    if map.len() >= MAX_NONCE_CACHE {
+        return true;
+    }
+
+    // 3. 检查 nonce 是否已存在
+    if map.contains_key(nonce) {
+        return false;
+    }
+
+    // 4. 插入
+    map.insert(nonce.to_owned(), issued_at);
+
+    true
+}
+
+pub async fn validate_nonce_issue_at(nonce: &str, issue_at: u64) -> Result<()> {
+    let now = now_secs();
+    // skip check for debug mode
+    if is_debug_mode()? {
+        return Ok(());
+    }
+
+    if now > issue_at + NONCE_EXPIRE_SECONDS {
+        return Err(anyhow!(super::error::Error::SigExpired.to_json()));
+    }
+
+    if !check_and_insert_nonce(now, nonce, issue_at).await {
+        return Err(anyhow!(super::error::Error::RepeatedNonce.to_json()));
+    }
+    Ok(())
+}
 
 /// AWS credentials for KMS access.
 ///
@@ -145,21 +199,28 @@ impl EnclaveRequest<WalletSignRequest> {
     pub fn validate(&self) -> Result<()> {
         // Validate vault_id is non-empty
         if self.request.verified_wallet_key.is_empty() {
-            bail!("vault_id cannot be empty");
+            println!("vault_id cannot be empty");
+            Err(anyhow!(super::error::Error::ParamsInvalid.to_json()))?;
         }
 
-        if !is_debug_mode()? && self.request.assertion.is_empty() {
-            bail!("in product mode,signature can't be none");
+        if self.request.assertion.is_empty() {
+            println!("in product mode,signature can't be none");
+            Err(anyhow!(super::error::Error::ParamsInvalid.to_json()))?;
         }
 
-        // Validate region is non-empty and contains only valid characters
         if self.request.message.is_empty() {
-            bail!("region cannot be empty");
+            println!("region cannot be empty");
+            Err(anyhow!(super::error::Error::ParamsInvalid.to_json()))?;
         }
 
-        // Validate region is non-empty and contains only valid characters
+        if self.request.issue_at == 0 {
+            println!("region cannot be empty");
+            Err(anyhow!(super::error::Error::ParamsInvalid.to_json()))?;
+        }
+
         if self.request.nonce.is_empty() {
-            bail!("region cannot be empty");
+            println!("region cannot be empty");
+            Err(anyhow!(super::error::Error::ParamsInvalid.to_json()))?;
         }
 
         if !self
@@ -168,7 +229,8 @@ impl EnclaveRequest<WalletSignRequest> {
             .chars()
             .all(|c| c.is_ascii_alphanumeric() || c == '-')
         {
-            bail!("region contains invalid characters");
+            println!("region contains invalid characters");
+            Err(anyhow!(super::error::Error::ParamsInvalid.to_json()))?;
         }
 
         Ok(())
@@ -178,6 +240,12 @@ impl EnclaveRequest<WalletSignRequest> {
     pub fn sign(&self) -> Result<String> {
         // Validate all inputs before processing
         self.validate()?;
+
+        tokio::runtime::Runtime::new()?.block_on(validate_nonce_issue_at(
+            &self.request.nonce,
+            self.request.issue_at,
+        ))?;
+
         //get wallet private key
         println!("{}:{}", file!(), line!());
         //1) decrypted tee pubkey  and wallet prikey
@@ -201,15 +269,19 @@ impl EnclaveRequest<WalletSignRequest> {
                 &self.sign_payload(),
             )?;
         }
-        let wallet_prikey_bytes = wallet_bond.wallet_prikey.decode_bs58()?;
+        let wallet_prikey_bytes = wallet_bond.wallet_prikey.decode_bs58().map_err(|e| {
+            println!("{:?}", e);
+            anyhow!(super::error::Error::ParamsInvalid.to_json())
+        })?;
         println!(
             "[enclave] decrypted KMS secret key {}",
             wallet_prikey_bytes.encode_bs58()
         );
-        //let private_key = wallet_prikey_bytes[..=31].to_vec();
         //3) sign tx_hash  by wallet prikey
-        //todo: message 这里要进行bs64编码，现在uft8不行
-        let msg_bytes = self.request.message.decode_bs64()?;
+        let msg_bytes = self.request.message.decode_bs64().map_err(|e| {
+            println!("{:?}", e);
+            anyhow!(super::error::Error::ParamsInvalid.to_json())
+        })?;
         let sig = ed25519::sign(&wallet_prikey_bytes, &msg_bytes)?;
         Ok(sig.encode_bs58())
     }
@@ -239,7 +311,17 @@ impl EnclaveRequest<CreateWalletKeyRequest> {
         .to_string()
     }
     pub fn validate(&self) -> Result<()> {
-        todo!()
+        //todo: more check
+        if self.request.issue_at == 0 {
+            println!("issue_at cannot be empty");
+            Err(anyhow!(super::error::Error::ParamsInvalid.to_json()))?;
+        }
+
+        if self.request.nonce.is_empty() {
+            println!("region cannot be empty");
+            Err(anyhow!(super::error::Error::ParamsInvalid.to_json()))?;
+        }
+        Ok(())
     }
     //fix algorithm with ECDSA_P256_SHA256_ASN1_SIGNING
     fn encrypt(&self, plaint_text: &str) -> Result<Vec<u8>> {
@@ -253,7 +335,11 @@ impl EnclaveRequest<CreateWalletKeyRequest> {
     }
     //todo: 暂时先做成只有住设备由权限创建key，并且指定要绑定的device_pubkey
     pub fn create(&self) -> Result<(String, String)> {
-        //todo: verify nonce
+        tokio::runtime::Runtime::new()?.block_on(validate_nonce_issue_at(
+            &self.request.nonce,
+            self.request.issue_at,
+        ))?;
+
         //先验证tee密钥的签名
         let client = get_tee_client(&self)?;
         let counter = if is_debug_mode()? {
@@ -303,7 +389,16 @@ pub struct TeeClientRegisterRequest {
 }
 impl EnclaveRequest<TeeClientRegisterRequest> {
     pub fn validate(&self) -> Result<()> {
-        todo!()
+        if self.request.issue_at == 0 {
+            println!("region cannot be empty");
+            Err(anyhow!(super::error::Error::ParamsInvalid.to_json()))?;
+        }
+
+        if self.request.nonce.is_empty() {
+            println!("region cannot be empty");
+            Err(anyhow!(super::error::Error::ParamsInvalid.to_json()))?;
+        }
+        Ok(())
     }
 
     pub fn attestation(&self) -> Result<Attestation> {
@@ -316,6 +411,11 @@ impl EnclaveRequest<TeeClientRegisterRequest> {
     //fix algorithm with ECDSA_P256_SHA256_ASN1_SIGNING
     pub fn encrypt_tee_client(&self) -> Result<String> {
         //todo: verify nonce if repeatable
+
+        tokio::runtime::Runtime::new()?.block_on(validate_nonce_issue_at(
+            &self.request.nonce,
+            self.request.issue_at,
+        ))?;
         let attestation = self.attestation()?;
         attestation.verify()?;
         let pubkey = attestation.pubkey()?;

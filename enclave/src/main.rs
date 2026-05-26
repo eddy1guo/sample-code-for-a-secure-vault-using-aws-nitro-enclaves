@@ -7,8 +7,9 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::thread;
 
-use anyhow::{Error, Result, anyhow};
+use anyhow::{Error, Result, anyhow, bail};
 use enclave_vault::credential::aws::get_attestation_document;
+use enclave_vault::error::ErrorType;
 use enclave_vault::models::{
     CreateWalletKeyRequest, EnclaveAction, ParentRequest, TeeClientRegisterRequest,
     WalletSignRequest,
@@ -67,15 +68,18 @@ fn sanitize_error_message(err: &Error) -> String {
 }
 
 //
-fn handle_decrypt(request: EnclaveRequest<ParentRequest>) -> Result<(Value, Vec<Error>)> {
+fn handle_decrypt(request: EnclaveRequest<ParentRequest>) -> Result<Value> {
     use serde_json::{Map, Value};
     // Decrypt the individual field values (uses rayon for parallelization internally)
     let (decrypted_fields, errors) = request.decrypt_fields()?;
     let value = Value::Object(decrypted_fields.into_iter().collect::<Map<String, Value>>());
-    Ok((value, errors))
+    if !errors.is_empty() {
+        bail!("handle_decrypt failed {:?}", errors);
+    }
+    Ok(value)
 }
 
-fn handle_wallet_sign(request: EnclaveRequest<WalletSignRequest>) -> Result<(Value, Vec<Error>)> {
+fn handle_wallet_sign(request: EnclaveRequest<WalletSignRequest>) -> Result<Value> {
     use serde_json::{Map, Value};
     println!("{}:{}", file!(), line!());
     let sig = request.sign()?;
@@ -83,12 +87,10 @@ fn handle_wallet_sign(request: EnclaveRequest<WalletSignRequest>) -> Result<(Val
     let mut fields: HashMap<String, Value> = Default::default();
     fields.insert("sig".to_string(), sig.into());
     let value = Value::Object(fields.into_iter().collect::<Map<String, Value>>());
-    Ok((value, Vec::new()))
+    Ok(value)
 }
 
-fn handle_create_wallet_key(
-    request: EnclaveRequest<CreateWalletKeyRequest>,
-) -> Result<(Value, Vec<Error>)> {
+fn handle_create_wallet_key(request: EnclaveRequest<CreateWalletKeyRequest>) -> Result<Value> {
     use serde_json::{Map, Value};
     println!("start to create wallet key");
     // Decrypt the individual field values (uses rayon for parallelization internally)
@@ -97,12 +99,10 @@ fn handle_create_wallet_key(
     fields.insert("prikey".to_string(), prikey.into());
     fields.insert("pubkey".to_string(), pubkey.into());
     let value = Value::Object(fields.into_iter().collect::<Map<String, Value>>());
-    Ok((value, Vec::new()))
+    Ok(value)
 }
 
-fn handle_tee_client_register(
-    request: EnclaveRequest<TeeClientRegisterRequest>,
-) -> Result<(Value, Vec<Error>)> {
+fn handle_tee_client_register(request: EnclaveRequest<TeeClientRegisterRequest>) -> Result<Value> {
     use serde_json::{Map, Value};
     println!("start to handle tee_client_register");
     // Decrypt the individual field values (uses rayon for parallelization internally)
@@ -110,49 +110,63 @@ fn handle_tee_client_register(
     let mut fields: HashMap<String, Value> = Default::default();
     fields.insert("tee_client".to_string(), client.into());
     let value = Value::Object(fields.into_iter().collect::<Map<String, Value>>());
-    Ok((value, Vec::new()))
+    Ok(value)
 }
 
 fn handle_client<S: Read + Write>(mut stream: S) -> Result<()> {
     println!("[enclave] handling client");
 
-    let (client_nonce, (response, errors)) = match recv_message(&mut stream)
+    let (client_nonce, response) = match recv_message(&mut stream)
         .map_err(|err| anyhow!("failed to receive message: {err:?}"))
     {
         Ok(payload_buffer) => match parse_payload(&payload_buffer) {
             Ok(EnclaveAction::Decrypt { inner }) => {
-                ("0".to_string().into_bytes(), handle_decrypt(inner)?)
+                ("0".to_string().into_bytes(), handle_decrypt(inner))
             }
             Ok(EnclaveAction::WalletSign { inner }) => (
                 inner.request.nonce.clone().into_bytes(),
-                handle_wallet_sign(inner)?,
+                handle_wallet_sign(inner),
             ),
             Ok(EnclaveAction::CreateWalletKey { inner }) => (
                 inner.request.nonce.clone().into_bytes(),
-                handle_create_wallet_key(inner)?,
+                handle_create_wallet_key(inner),
             ),
             Ok(EnclaveAction::TeeClientRegister { inner }) => (
                 inner.request.nonce.clone().into_bytes(),
-                handle_tee_client_register(inner)?,
+                handle_tee_client_register(inner),
             ),
             Err(err) => return send_error(stream, err),
         },
         Err(err) => return send_error(stream, err),
     };
 
-    let payload: String = serde_json::to_string(&response)
-        .map_err(|err| anyhow!("failed to serialize response: {err:?}"))?;
+    let (final_fields, errors): (HashMap<String, Value>, Option<Vec<Error>>) = match response {
+        Ok(response) => {
+            let payload: String = serde_json::to_string(&response)
+                .map_err(|err| anyhow!("failed to serialize response: {err:?}"))?;
 
-    println!("[enclave] sending response to parent: payload {}", payload);
+            println!("[enclave] sending response to parent: payload {}", payload);
 
-    let attestation_document = get_attestation_document(payload.as_bytes(), &client_nonce).unwrap();
-    let final_fields = [(
-        "attestation".to_string(),
-        hex::encode(&attestation_document).into(),
-    )]
-    .into();
+            let attestation_document =
+                get_attestation_document(payload.as_bytes(), &client_nonce).unwrap();
+            let final_fields = [(
+                "attestation".to_string(),
+                hex::encode(&attestation_document).into(),
+            )]
+            .into();
 
-    let response = EnclaveResponse::new(final_fields, Some(errors));
+            (final_fields, None)
+        }
+        Err(err) => {
+            if err.is_biz_error() {
+                (Default::default(), Some(vec![err]))
+            } else {
+                return Err(err);
+            }
+        }
+    };
+
+    let response = EnclaveResponse::new(final_fields, errors);
     println!(
         "[enclave] sending response to parent: EnclaveResponse {:?}",
         response

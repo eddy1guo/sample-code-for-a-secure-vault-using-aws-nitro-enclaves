@@ -139,3 +139,11 @@ pub fn age(This(this): This<DateTime<FixedOffset>>) -> ResolveResult {
         None => Ok(0.into()),
     }
 }
+
+pub fn now_millis() -> u64 {
+    chrono::prelude::Local::now().timestamp_millis() as u64
+}
+
+pub fn now_secs() -> u64 {
+    now_millis() / 1000
+}

@@ -6,6 +6,7 @@ pub mod codec;
 pub mod constants;
 pub mod credential;
 pub mod ed25519;
+pub mod error;
 pub mod expressions;
 pub mod functions;
 pub mod hpke;
