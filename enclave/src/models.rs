@@ -67,12 +67,12 @@ use tokio::sync::RwLock;
 
 const MAX_NONCE_CACHE: usize = 1000;
 //pub const NONCE_EXPIRE_SECONDS: u64 = 10 * 1000;
-pub const NONCE_EXPIRE_SECONDS: u64 = 24 * 60 * 60 * 1000;
+pub const NONCE_EXPIRE_SECONDS: i64 = 24 * 60 * 60;
 
-static NONCE_CACHE: LazyLock<RwLock<HashMap<String, u64>>> =
+static NONCE_CACHE: LazyLock<RwLock<HashMap<String, i64>>> =
     LazyLock::new(|| RwLock::new(HashMap::new()));
 
-pub async fn check_and_insert_nonce(now: u64, nonce: &str, issued_at: u64) -> bool {
+pub async fn check_and_insert_nonce(now: i64, nonce: &str, issued_at: i64) -> bool {
     let mut map = NONCE_CACHE.write().await;
 
     // 1. 清理过期 nonce
@@ -94,7 +94,7 @@ pub async fn check_and_insert_nonce(now: u64, nonce: &str, issued_at: u64) -> bo
     true
 }
 
-pub async fn validate_nonce_issue_at(nonce: &str, issue_at: u64) -> Result<()> {
+pub async fn validate_nonce_issue_at(nonce: &str, issue_at: i64) -> Result<()> {
     let now = now_secs();
     // skip check for debug mode
     if is_debug_mode()? {
@@ -170,7 +170,7 @@ pub struct WalletSignRequest {
     pub sign_assertion: String,
     //txid
     pub message: String,
-    pub issue_at: u64,
+    pub issue_at: i64,
     pub nonce: String,
     pub region: String,
 }
@@ -182,7 +182,7 @@ pub struct WalletRecoveryRequest {
     // todo: 再想，
     pub new_pwd_pubkey: String,
     pub new_pwd_sig: String,
-    pub issue_at: u64,
+    pub issue_at: i64,
     pub nonce: String,
     pub region: String,
 }
@@ -298,7 +298,7 @@ pub struct CreateWalletKeyRequest {
     pub pwd_pubkey: String,
     pub pwd_sig: String,
     pub create_key_assertion: String,
-    pub issue_at: u64,
+    pub issue_at: i64,
     pub nonce: String,
     pub key_id: String,
     pub region: String,
@@ -385,7 +385,7 @@ impl EnclaveRequest<CreateWalletKeyRequest> {
 pub struct TeeClientRegisterRequest {
     pub attestation_doc: String,
     pub platform: Platform,
-    pub issue_at: u64,
+    pub issue_at: i64,
     pub nonce: String,
     pub key_id: String,
     pub region: String,
