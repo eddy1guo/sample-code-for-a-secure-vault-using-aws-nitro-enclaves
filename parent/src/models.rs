@@ -386,7 +386,7 @@ pub enum Platform {
 
 #[derive(Debug, Clone, Serialize, Deserialize, Validate)]
 pub struct TeeClientRegisterRequest {
-    pub attestation_doc: String,
+    pub attestation: Vec<String>,
     pub platform: Platform,
     pub issue_at: i64,
     pub nonce: String,

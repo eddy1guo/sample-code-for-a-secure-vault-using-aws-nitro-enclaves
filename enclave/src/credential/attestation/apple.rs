@@ -532,7 +532,7 @@ pub struct RealWorldSample {
     client_data_hash_base64: String,
     /// Apple 返回的 attestation object，CBOR 二进制后再 Base64。
     #[serde(rename = "attestationObjectBase64")]
-    attestation_object_base64: String,
+    pub attestation_object_base64: String,
 }
 
 pub fn verify_attestation2(
