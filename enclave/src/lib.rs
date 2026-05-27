@@ -11,6 +11,7 @@ pub mod expressions;
 pub mod functions;
 pub mod hpke;
 pub mod kms;
-pub mod models;
+pub mod model;
+pub use model as models;
 pub mod protocol;
 pub mod utils;

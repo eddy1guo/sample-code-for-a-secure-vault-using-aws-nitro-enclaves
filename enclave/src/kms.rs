@@ -27,9 +27,8 @@ use crate::codec::bs64::EncodeBs64;
 use crate::codec::hex::DecodeHex;
 use crate::codec::json::JsonDeserialize;
 use crate::credential::common::{TeeClient, Usage, WalletKeyBond};
-use crate::models::{
-    CreateWalletKeyRequest, Credential, EnclaveRequest, ParentRequest, WalletSignRequest,
-};
+use crate::model::DecryptRequire;
+use crate::models::{CreateWalletKeyRequest, Credential, EnclaveRequest};
 use crate::utils::base64_decode;
 
 /// A secure wrapper for HPKE private keys that zeroizes key material on drop.
@@ -115,104 +114,6 @@ pub fn call_kms_encrypt(
     .map_err(|e| anyhow!("KMS encrypt failed: {}", e))
 }
 
-/// Decrypts and extracts the HPKE private key from a KMS-encrypted payload.
-///
-/// This function:
-/// 1. Decrypts the KMS-encrypted private key using the provided credentials
-/// 2. Parses the DER-encoded PKCS#8 private key
-/// 3. Extracts the raw private key bytes for HPKE use
-/// 4. Zeroizes all intermediate key material
-///
-/// # Arguments
-///
-/// * `alg` - The ECDSA signing algorithm matching the key's curve
-/// * `payload` - The enclave request containing credentials and encrypted key
-///
-/// # Returns
-///
-/// Returns a [`SecureHpkePrivateKey`] that zeroizes key material on drop.
-///
-/// # Security
-///
-/// - The plaintext private key material is zeroized immediately after extraction
-/// - The returned key is wrapped in [`SecureHpkePrivateKey`] for automatic zeroization
-/// - Even if an error occurs during processing, intermediate materials are zeroized
-pub fn get_secret_key(
-    alg: &'static EcdsaSigningAlgorithm,
-    payload: &EnclaveRequest<ParentRequest>,
-) -> Result<SecureHpkePrivateKey> {
-    // Call KMS decrypt via FFI wrapper - returns plaintext bytes directly
-    let mut plaintext_sk = call_kms_decrypt(
-        &payload.credential,
-        &payload.request.encrypted_private_key, // base64 encoded
-        &payload.request.region,
-    )
-    .map_err(|err| anyhow!("failed to call KMS: {err:?}"))?;
-
-    // DEBUG: print KMS decrypted private key info
-    println!(
-        "[enclave] KMS decrypted private key length: {} bytes",
-        plaintext_sk.len()
-    );
-    println!(
-        "[enclave] KMS decrypted private key (hex): {}",
-        plaintext_sk
-            .iter()
-            .map(|b| format!("{:02x}", b))
-            .collect::<String>()
-    );
-    println!(
-        "[enclave] KMS decrypted private key (base64): {}",
-        data_encoding::BASE64.encode(&plaintext_sk)
-    );
-
-    // Process key and ensure zeroization on all paths
-    let result = (|| -> Result<SecureHpkePrivateKey> {
-        // Decode the DER PKCS#8 secret key
-        let sk = EcdsaKeyPair::from_private_key_der(alg, &plaintext_sk)
-            .map_err(|err| anyhow!("unable to decode PKCS#8 private key: {err:?}"))?;
-        let sk_bytes = sk
-            .private_key()
-            .as_be_bytes()
-            .map_err(|err| anyhow!("unable to get private key bytes: {err:?}"))?;
-        let sk_ref = sk_bytes.as_ref();
-
-        // Wrap in SecureHpkePrivateKey for automatic zeroization on drop
-        Ok(SecureHpkePrivateKey::new(sk_ref.to_vec()))
-    })();
-
-    // Always zeroize the plaintext key material
-    plaintext_sk.zeroize();
-
-    result
-}
-
-pub fn get_wallet_private_key(payload: &EnclaveRequest<WalletSignRequest>) -> Result<Vec<u8>> {
-    // Call KMS decrypt via FFI wrapper - returns plaintext bytes directly
-    println!("{}:{}", file!(), line!());
-    let plaintext_sk = call_kms_decrypt(
-        &payload.credential,
-        &payload.request.key_bond_ciphertext, // base64 encoded
-        &payload.request.region,
-    )
-    .map_err(|err| anyhow!("failed to call KMS: {err:?}"))?;
-
-    // DEBUG: print KMS decrypted private key info
-    println!(
-        "[enclave] KMS decrypted private key length: {} bytes",
-        plaintext_sk.len()
-    );
-    println!(
-        "[enclave] KMS decrypted private key (hex): {}",
-        plaintext_sk
-            .iter()
-            .map(|b| format!("{:02x}", b))
-            .collect::<String>()
-    );
-
-    Ok(plaintext_sk)
-}
-
 //解密在设备注册时候的密文结果获取tee的密钥公钥明文
 pub fn get_tee_client(payload: &EnclaveRequest<CreateWalletKeyRequest>) -> Result<TeeClient> {
     println!("{}:{}", file!(), line!());
@@ -236,14 +137,14 @@ pub fn get_tee_client(payload: &EnclaveRequest<CreateWalletKeyRequest>) -> Resul
 }
 
 //解密在设备注册时候的密文结果获取tee的密钥公钥明文
-pub fn get_wallet_key_bond(payload: &EnclaveRequest<WalletSignRequest>) -> Result<WalletKeyBond> {
+pub fn get_wallet_key_bond(
+    credential: &Credential,
+    ciphertext: &str,
+    region: &str,
+) -> Result<WalletKeyBond> {
     println!("{}:{}", file!(), line!());
-    let plaintext = call_kms_decrypt(
-        &payload.credential,
-        &payload.request.key_bond_ciphertext,
-        &payload.request.region,
-    )
-    .map_err(|err| anyhow!("failed to call KMS: {err:?}"))?;
+    let plaintext = call_kms_decrypt(credential, ciphertext, region)
+        .map_err(|err| anyhow!("failed to call KMS: {err:?}"))?;
 
     let client: WalletKeyBond = serde_json::from_slice(&plaintext)?;
     if client.usage != Usage::CreatedWalletKey {

@@ -10,10 +10,8 @@ use std::thread;
 use anyhow::{Error, Result, anyhow, bail};
 use enclave_vault::credential::aws::get_attestation_document;
 use enclave_vault::error::ErrorType;
-use enclave_vault::models::{
-    CreateWalletKeyRequest, EnclaveAction, ParentRequest, TeeClientRegisterRequest,
-    WalletSignRequest,
-};
+use enclave_vault::model::WalletSignRequest;
+use enclave_vault::models::{CreateWalletKeyRequest, EnclaveAction, TeeClientRegisterRequest};
 use enclave_vault::{
     constants::{ENCLAVE_PORT, MAX_CONCURRENT_CONNECTIONS},
     expressions::execute_expressions,
@@ -67,18 +65,6 @@ fn sanitize_error_message(err: &Error) -> String {
     }
 }
 
-//
-fn handle_decrypt(request: EnclaveRequest<ParentRequest>) -> Result<Value> {
-    use serde_json::{Map, Value};
-    // Decrypt the individual field values (uses rayon for parallelization internally)
-    let (decrypted_fields, errors) = request.decrypt_fields()?;
-    let value = Value::Object(decrypted_fields.into_iter().collect::<Map<String, Value>>());
-    if !errors.is_empty() {
-        bail!("handle_decrypt failed {:?}", errors);
-    }
-    Ok(value)
-}
-
 fn handle_wallet_sign(request: EnclaveRequest<WalletSignRequest>) -> Result<Value> {
     use serde_json::{Map, Value};
     println!("{}:{}", file!(), line!());
@@ -120,9 +106,6 @@ fn handle_client<S: Read + Write>(mut stream: S) -> Result<()> {
         .map_err(|err| anyhow!("failed to receive message: {err:?}"))
     {
         Ok(payload_buffer) => match parse_payload(&payload_buffer) {
-            Ok(EnclaveAction::Decrypt { inner }) => {
-                ("0".to_string().into_bytes(), handle_decrypt(inner))
-            }
             Ok(EnclaveAction::WalletSign { inner }) => (
                 inner.request.nonce.clone().into_bytes(),
                 handle_wallet_sign(inner),

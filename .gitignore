@@ -10,3 +10,5 @@ samconfig.toml
 *.xlsx
 site
 .env
+*.log
+*_bak

@@ -1,0 +1,97 @@
+use anyhow::{Result, anyhow};
+use serde::{Deserialize, Serialize};
+use serde_json::json;
+
+use crate::codec::bs58::EncodeBs58;
+use crate::codec::hex::EncodeHex;
+use crate::codec::json::JsonSerialize;
+use crate::credential::assertion::verify_assertion;
+use crate::credential::aws::is_debug_mode;
+use crate::credential::common::{Usage, WalletKeyBond};
+use crate::ed25519::new_key_pair;
+use crate::kms::{call_kms_encrypt, get_tee_client};
+use crate::model::{DecryptRequire, EnclaveRequest, validate_nonce_issue_at};
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Request {
+    pub device_ciphertext: String,
+    pub device_confirmed_assertion: String,
+    pub pwd_pubkey: String,
+    pub pwd_sig: String,
+    pub create_key_assertion: String,
+    pub issue_at: i64,
+    pub nonce: String,
+    pub key_id: String,
+    pub region: String,
+}
+
+impl EnclaveRequest<Request> {
+    pub fn sign_payload(&self) -> String {
+        json!({
+            "type": Usage::CreatedWalletKey,
+            "issued_at": self.request.issue_at,
+            "nonce": self.request.nonce,
+        })
+        .to_string()
+    }
+
+    pub fn validate(&self) -> Result<()> {
+        if self.request.issue_at == 0 {
+            println!("issue_at cannot be empty");
+            Err(anyhow!(super::super::error::Error::ParamsInvalid.to_json()))?;
+        }
+
+        if self.request.nonce.is_empty() {
+            println!("region cannot be empty");
+            Err(anyhow!(super::super::error::Error::ParamsInvalid.to_json()))?;
+        }
+        Ok(())
+    }
+
+    fn encrypt(&self, plaint_text: &str) -> Result<Vec<u8>> {
+        call_kms_encrypt(
+            &self.credential,
+            plaint_text,
+            &self.request.region,
+            &self.request.key_id,
+        )
+        .map_err(|err| anyhow!("failed to call KMS:call_kms_encrypt: {err:?}"))
+    }
+
+    pub fn create(&self) -> Result<(String, String)> {
+        tokio::runtime::Runtime::new()?.block_on(validate_nonce_issue_at(
+            &self.request.nonce,
+            self.request.issue_at,
+        ))?;
+
+        let client = get_tee_client(&self)?;
+        let counter = if is_debug_mode()? {
+            println!("skip verification for debug mode");
+            Some(1)
+        } else {
+            verify_assertion(
+                client.platform.clone(),
+                &client.app_id,
+                &self.request.create_key_assertion,
+                &client.pubkey,
+                Some(0),
+                &self.sign_payload(),
+            )?
+        };
+        let key_pair = new_key_pair();
+        let wallet_prikey = key_pair.0.encode_bs58();
+        let wallet_pubkey = key_pair.1.encode_bs58();
+        let plaint_text = WalletKeyBond {
+            client_platform: client.platform,
+            tee_device_pubkey: client.pubkey,
+            pwd_pubkey: self.request.pwd_pubkey.clone(),
+            wallet_prikey: wallet_prikey.clone(),
+            usage: Usage::CreatedWalletKey,
+            app_id: client.app_id,
+            counter,
+        }
+        .serialize_json()?;
+        println!("generate new wallet:  {} ", plaint_text);
+        Ok((self.encrypt(&plaint_text)?.encode_hex(), wallet_pubkey))
+    }
+}

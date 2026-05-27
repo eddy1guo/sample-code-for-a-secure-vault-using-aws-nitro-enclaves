@@ -1,4 +1,4 @@
-use crate::codec::bs64::DecodeBs64;
+use crate::codec::bs64::{DecodeBs64, EncodeBs64};
 use crate::credential::common::{
     DerElement, certificate_extension_value, find_context_specific, load_pem_certificates,
     parse_der, verify_cert_chain,
@@ -95,45 +95,60 @@ pub struct RealWorldSample {
     attestation_cert_chain_base64: Vec<String>,
 }
 
+// pub fn verify_attestation2(
+//     client_data_utf8: &str,
+//     attestation_object_base64: &str,
+// ) -> Result<VerifiedAttestation> {
+//     let client_data_hash = sha256_bytes(client_data_utf8.as_bytes());
+//     let attestation_object = attestation_object_base64.decode_bs64()?;
+
+//     let verified: VerifiedAttestation = verify_attestation(
+//         &attestation_object,
+//         &client_data_hash,
+//         APPLE_APP_ATTEST_ROOT_CA_PEM.as_bytes(),
+//     )?;
+//     Ok(verified)
+// }
+
 pub fn verify_attestation2(
-    attestation_challenge_base64: &str,
-    public_key_base64: &str,
+    client_data_bytes: &[u8],
     attestation_cert_chain_base64: &[String],
-    package_name: &str,
-) -> Result<()> {
-    let challenge = attestation_challenge_base64.decode_bs64()?;
-    let expected_public_key = public_key_base64.decode_bs64()?;
+) -> Result<(String, String)> {
     let chain = attestation_cert_chain_base64
         .iter()
         .map(|cert| cert.decode_bs64().map_err(anyhow::Error::from))
         .collect::<Result<Vec<Vec<u8>>>>()?;
     let requirements = KeyAttestationRequirements {
-        challenge: &challenge,
+        challenge: client_data_bytes,
         root_pems: &[],
-        expected_package_name: Some(package_name),
+        expected_package_name: None,
         expected_signature_digests: &[],
         require_hardware_backed: true,
         require_verified_boot: true,
     };
 
     let verified = verify_google_attestation(&chain, &requirements, None)?;
-    //todo: return error
-    assert_eq!(verified.challenge, challenge);
-    assert_eq!(verified.public_key_spki_der, expected_public_key);
-    assert!(verified.root_of_trust.device_locked);
-    assert_eq!(
-        verified.root_of_trust.verified_boot_state,
-        VerifiedBootState::Verified
-    );
-    assert_eq!(
-        verified
-            .application_id
-            .as_ref()
-            .expect("application id")
-            .package_names,
-        vec![package_name.to_string()]
-    );
-    Ok(())
+    if verified.challenge != client_data_bytes {
+        bail!("verified.challenge !=  client_data_bytes ")
+    }
+    if !verified.root_of_trust.device_locked {
+        bail!("verified.root_of_trust.device_locked is false")
+    }
+    if verified.root_of_trust.verified_boot_state != VerifiedBootState::Verified {
+        bail!("verified.root_of_trust.verified_boot_state !=  VerifiedBootState::Verified ")
+    }
+
+    let app_id = verified
+        .application_id
+        .as_ref()
+        .ok_or(anyhow!("application id is null"))?
+        .package_names
+        .first()
+        .ok_or(anyhow!("app ids is null"))?;
+    Ok((
+        app_id.to_owned(),
+        verified.public_key_spki_der.encode_bs64(),
+    ))
 }
 
 impl RealWorldSample {
@@ -680,6 +695,29 @@ mod tests {
     use openssl::x509::{X509, X509Extension, X509NameBuilder};
     use std::fs;
     use std::path::PathBuf;
+
+    #[test]
+    fn test_verify_attestation2() -> Result<()> {
+        let attestation_path = "testdata/android_xiaomi_real_world_attestation_object2.txt";
+        let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("src")
+            .join("credential")
+            .join(attestation_path);
+        let file = fs::read_to_string(&path)
+            .map_err(|err| anyhow!("failed to read {}: {err}", path.display()))?;
+        let json_start = file
+            .find('{')
+            .ok_or_else(|| anyhow!("missing JSON object in android real-world sample"))?;
+        let sample: RealWorldSample = serde_json::from_str(&file[json_start..])?;
+
+        let challenge = STANDARD.decode(&sample.attestation_challenge_base64)?;
+        let expected_public_key = STANDARD.decode(&sample.public_key_base64)?;
+        let (app_id, pubkey) =
+            super::verify_attestation2(&challenge, &sample.attestation_cert_chain_base64)?;
+        assert_eq!(pubkey, expected_public_key.encode_bs64());
+        println!("app_id={}", app_id);
+        Ok(())
+    }
 
     fn verify_real_world_sample(attestation_path: &str) -> Result<()> {
         let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))

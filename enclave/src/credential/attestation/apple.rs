@@ -69,6 +69,8 @@ pub enum AppAttestEnvironment {
 pub struct VerifiedAttestation {
     /// 已解码的 keyId，通常等于 attested 公钥的哈希。
     pub key_id: Vec<u8>,
+    /// app 包名
+    pub app_id: String,
     /// App Attest 计数器。首次 attestation 时应为 0，后续 assertion 会递增。
     pub counter: u32,
     /// 当前证明对应的环境，区分 development / production。
@@ -79,6 +81,8 @@ pub struct VerifiedAttestation {
     pub public_key_spki_der: Vec<u8>,
     /// 未压缩 EC 公钥，格式为 `04 || X || Y`。
     pub public_key_raw: Vec<u8>,
+    ///
+    pub public_key_str: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -145,8 +149,8 @@ struct ParsedAuthenticatorData {
 /// `root_pem` should be the Apple App Attestation Root CA certificate.
 pub fn verify_attestation(
     attestation_object: &[u8],
-    app_id: &str,
-    key_id: &str,
+    // app_id: &str,
+    // key_id: &str,
     client_data_hash: &[u8],
     root_pem: &[u8],
 ) -> Result<VerifiedAttestation> {
@@ -159,6 +163,9 @@ pub fn verify_attestation(
         bail!("App Attest attestation statement is missing x5c certificates");
     }
 
+    let public_key_str =
+        parse_attestation_object_bytes(&attestation_object)?.public_key_spki_der_base64;
+
     let leaf = X509::from_der(&object.att_stmt.x5c[0])?;
     let intermediates = object
         .att_stmt
@@ -170,10 +177,10 @@ pub fn verify_attestation(
     verify_cert_chain(&leaf, &intermediates, &roots)?;
 
     let auth_data = parse_authenticator_data(object.auth_data.as_slice())?;
-    let expected_rp_id_hash = sha256_bytes(app_id.as_bytes());
-    if auth_data.rp_id_hash.as_slice() != expected_rp_id_hash.as_slice() {
-        bail!("App Attest app identity hash mismatch");
-    }
+    // let expected_rp_id_hash = sha256_bytes(app_id.as_bytes());
+    // if auth_data.rp_id_hash.as_slice() != expected_rp_id_hash.as_slice() {
+    //     bail!("App Attest app identity hash mismatch");
+    // }
     if (auth_data.flags & FLAG_ATTESTED_CREDENTIAL_DATA) == 0 {
         bail!("App Attest authData is missing attested credential data");
     }
@@ -189,10 +196,10 @@ pub fn verify_attestation(
         bail!("credential public key does not match attestation certificate");
     }
 
-    let decoded_key_id = decode_key_id(key_id)?;
-    if decoded_key_id != auth_data.credential_id {
-        bail!("App Attest key identifier does not match credential id");
-    }
+    // let decoded_key_id = decode_key_id(key_id)?;
+    // if decoded_key_id != auth_data.credential_id {
+    //     bail!("App Attest key identifier does not match credential id");
+    // }
 
     let public_key_spki_der = cert_public_key.public_key_to_der()?;
     let candidate_hashes = [
@@ -201,7 +208,7 @@ pub fn verify_attestation(
     ];
     if !candidate_hashes
         .iter()
-        .any(|candidate| *candidate == decoded_key_id)
+        .any(|candidate| *candidate == auth_data.credential_id)
     {
         bail!("credential id does not match the attested certificate public key");
     }
@@ -220,13 +227,23 @@ pub fn verify_attestation(
         bail!("App Attest nonce mismatch");
     }
 
+    let candidates = extract_app_id_candidates(&object.att_stmt.x5c[0]);
+    let matched = candidates.into_iter().find(|candidate| {
+        sha256_bytes(candidate.as_bytes()).as_slice() == auth_data.rp_id_hash.as_slice()
+    });
+
+    let app_id =
+        matched.ok_or_else(|| anyhow!("failed to derive App Attest app id from attestation"))?;
+
     Ok(VerifiedAttestation {
-        key_id: decoded_key_id,
+        key_id: auth_data.credential_id,
+        app_id,
         counter: auth_data.counter,
         environment,
         receipt: object.att_stmt.receipt.map(|receipt| receipt.to_vec()),
         public_key_spki_der,
         public_key_raw,
+        public_key_str,
     })
 }
 
@@ -518,8 +535,19 @@ pub struct RealWorldSample {
     attestation_object_base64: String,
 }
 
-pub fn verify_attestation2(client_data_utf8: &str, attestation_object_base64: &str) -> Result<()> {
-    todo!()
+pub fn verify_attestation2(
+    client_data_bytes: &[u8],
+    attestation_object_base64: &str,
+) -> Result<(String, String)> {
+    let client_data_hash = sha256_bytes(client_data_bytes);
+    let attestation_object = attestation_object_base64.decode_bs64()?;
+
+    let verified = verify_attestation(
+        &attestation_object,
+        &client_data_hash,
+        APPLE_APP_ATTEST_ROOT_CA_PEM.as_bytes(),
+    )?;
+    Ok((verified.app_id, verified.public_key_str))
 }
 
 impl RealWorldSample {
@@ -536,8 +564,6 @@ impl RealWorldSample {
 
         let verified = verify_attestation(
             &attestation_object,
-            REAL_SAMPLE_APP_ID,
-            &self.key_id,
             &provided_client_data_hash,
             APPLE_APP_ATTEST_ROOT_CA_PEM.as_bytes(),
         )?;
@@ -701,13 +727,8 @@ mod tests {
                 &[leaf_cert.to_der()?, intermediate_cert.to_der()?],
                 Some(receipt.clone()),
             )?;
-            let verified = verify_attestation(
-                &attestation_object,
-                app_id,
-                &URL_SAFE_NO_PAD.encode(&key_id_bytes),
-                &client_data_hash,
-                &root_cert.to_pem()?,
-            )?;
+            let verified =
+                verify_attestation(&attestation_object, &client_data_hash, &root_cert.to_pem()?)?;
 
             assert_eq!(verified.environment, AppAttestEnvironment::Development);
             assert_eq!(verified.counter, 0);
@@ -756,16 +777,25 @@ mod tests {
             let attestation_object =
                 encode_attestation_object(&auth_data, &[leaf_cert.to_der()?], None)?;
 
-            let err = verify_attestation(
-                &attestation_object,
-                "ABCD1234.com.example.other",
-                &URL_SAFE_NO_PAD.encode(&key_id_bytes),
-                &client_data_hash,
-                &root_cert.to_pem()?,
-            )
-            .unwrap_err();
+            let err =
+                verify_attestation(&attestation_object, &client_data_hash, &root_cert.to_pem()?)
+                    .unwrap_err();
 
             assert!(err.to_string().contains("app identity hash mismatch"));
+            Ok(())
+        }
+
+        #[test]
+        fn test_verify_attestation2() -> Result<()> {
+            let sample: RealWorldSample = serde_json::from_str(include_str!(
+                "../testdata/ios_real_world_attestation_object.txt"
+            ))?;
+
+            let (app_id, pubkey) = super::verify_attestation2(
+                &sample.client_data_utf8.as_bytes(),
+                &sample.attestation_object_base64,
+            )?;
+            println!("app_id={},pubkey={}", app_id, pubkey);
             Ok(())
         }
 
@@ -781,8 +811,6 @@ mod tests {
 
             let verified = verify_attestation(
                 &attestation_object,
-                REAL_SAMPLE_APP_ID,
-                &sample.key_id,
                 &provided_client_data_hash,
                 APPLE_APP_ATTEST_ROOT_CA_PEM.as_bytes(),
             )?;
@@ -809,8 +837,6 @@ mod tests {
             let parsed = parse_attestation_object_base64(&sample.attestation_object_base64)?;
             let verified = verify_attestation(
                 &attestation_object,
-                REAL_SAMPLE_APP_ID,
-                &sample.key_id,
                 &client_data_hash,
                 APPLE_APP_ATTEST_ROOT_CA_PEM.as_bytes(),
             )?;
@@ -842,8 +868,6 @@ mod tests {
             let attestation_object = STANDARD.decode(&sample.attestation_object_base64)?;
             let verified = verify_attestation(
                 &attestation_object,
-                REAL_SAMPLE_APP_ID,
-                &sample.key_id,
                 &client_data_hash,
                 APPLE_APP_ATTEST_ROOT_CA_PEM.as_bytes(),
             )?;
