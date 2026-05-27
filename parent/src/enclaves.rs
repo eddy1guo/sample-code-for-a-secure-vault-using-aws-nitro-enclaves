@@ -32,7 +32,7 @@ use crate::constants::{
     RUN_ENCLAVE_MEMORY_SIZE,
 };
 use crate::models::{EnclaveAction, EnclaveDescribeInfo, EnclaveRunInfo};
-use crate::{constants, errors::AppError, models::EnclaveRequest};
+use crate::{constants, errors::AppError};
 use crate::{
     models::EnclaveResponse,
     protocol::{recv_message, send_message},

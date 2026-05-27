@@ -166,22 +166,8 @@ pub struct WalletSignRequest {
     pub key_bond_ciphertext: String,
     pub key_bond_confirmed_assertion: String,
     pub pwd_sig: String,
-    //todo: add confirm create_key assertion
     pub sign_assertion: String,
-    //txid
     pub message: String,
-    pub issue_at: i64,
-    pub nonce: String,
-    pub region: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct WalletRecoveryRequest {
-    /// encrypted data,contain client pubkey and identity key  on chain
-    pub verified_wallet_key: Vec<String>,
-    // todo: 再想，
-    pub new_pwd_pubkey: String,
-    pub new_pwd_sig: String,
     pub issue_at: i64,
     pub nonce: String,
     pub region: String,
@@ -252,8 +238,7 @@ impl EnclaveRequest<WalletSignRequest> {
         //1) decrypted tee pubkey  and wallet prikey
         let wallet_bond = get_wallet_key_bond(&self)?;
 
-        //2) check tee client signature by tee pubkey
-        //let tee_client = wallet_bond.clone().into_tee_client();
+        // todo: 临时这么处理，只有issue_at和nonce是可以跳过的，assertion不行
         if is_debug_mode()? {
             println!("skip verification for debug mode");
         } else {
@@ -261,7 +246,6 @@ impl EnclaveRequest<WalletSignRequest> {
             //todo: check if expires
             //todo: check nonce
             //todo: check key_bond_confirmed_assertion
-
             verify_assertion(
                 wallet_bond.client_platform,
                 &wallet_bond.app_id,
@@ -464,6 +448,18 @@ pub enum EnclaveAction {
         #[serde(flatten)]
         inner: EnclaveRequest<TeeClientRegisterRequest>,
     },
+    // WalletRecovery {
+    //     #[serde(flatten)]
+    //     inner: EnclaveRequest<WalletRecoveryRequest>,
+    // },
+    // WalletSignWithoutAssertion {
+    //     #[serde(flatten)]
+    //     inner: EnclaveRequest<WalletSignWithoutAssertionRequest>,
+    // },
+    // ModifyPwdAssertion {
+    //     #[serde(flatten)]
+    //     inner: EnclaveRequest<ModifyPwdAssertionRequest>,
+    // },
 }
 
 impl EnclaveRequest<ParentRequest> {

@@ -280,9 +280,9 @@ fn validate_expressions_count(
     Ok(())
 }
 
-/// Response returned to the API tier after decryption.
+/// Common response returned to the API tier after enclave processing.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ParentResponse {
+pub struct ApiResponse {
     /// Map of field names to decrypted values.
     pub fields: BTreeMap<String, Value>,
 
@@ -290,6 +290,8 @@ pub struct ParentResponse {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub errors: Option<Vec<String>>,
 }
+
+pub type ParentResponse = ApiResponse;
 
 /// Request sent to the enclave over vsock.
 ///
@@ -343,11 +345,14 @@ pub struct EnclaveResponse {
 
 #[derive(Debug, Clone, Serialize, Deserialize, Validate)]
 pub struct WalletSignRequest {
-    /// HPKE encrypted private key, hex encoded.
+    /// Encrypted wallet key bond payload.
     #[validate(length(min = 1, max = "MAX_ENCRYPTED_KEY_LENGTH"))]
-    pub verified_wallet_key: String,
+    pub key_bond_ciphertext: String,
+    #[validate(length(min = 1, max = 1000000000))]
+    pub key_bond_confirmed_assertion: String,
     pub pwd_sig: String,
-    pub assertion: String,
+    #[validate(length(min = 1, max = 1000000000))]
+    pub sign_assertion: String,
     #[validate(length(min = 1, max = 1000000000))]
     pub message: String,
     pub issue_at: i64,
@@ -356,37 +361,20 @@ pub struct WalletSignRequest {
     pub region: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct WalletSignResponse {
-    /// Map of field names to decrypted values.
-    pub fields: BTreeMap<String, Value>,
-
-    /// Optional list of errors encountered during decryption.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub errors: Option<Vec<String>>,
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize, Validate)]
 pub struct CreateWalletKeyRequest {
     #[validate(length(min = 1, max = 1000000000))]
-    pub verified_client: String,
+    pub device_ciphertext: String,
+    #[validate(length(min = 1, max = 1000000000))]
+    pub device_confirmed_assertion: String,
     pub pwd_pubkey: String,
     pub pwd_sig: String,
-    pub assertion: String,
+    #[validate(length(min = 1, max = 1000000000))]
+    pub create_key_assertion: String,
     pub issue_at: i64,
     pub nonce: String,
     pub key_id: String,
     pub region: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CreateWalletKeyResponse {
-    /// Map of field names to decrypted values.
-    pub fields: BTreeMap<String, Value>,
-
-    /// Optional list of errors encountered during decryption.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub errors: Option<Vec<String>>,
 }
 
 use strum_macros::{Display, EnumString};
@@ -404,16 +392,6 @@ pub struct TeeClientRegisterRequest {
     pub nonce: String,
     pub key_id: String,
     pub region: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct TeeClientRegisterResponse {
-    /// Map of field names to decrypted values.
-    pub fields: BTreeMap<String, Value>,
-
-    /// Optional list of errors encountered during decryption.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub errors: Option<Vec<String>>,
 }
 
 #[cfg(test)]
