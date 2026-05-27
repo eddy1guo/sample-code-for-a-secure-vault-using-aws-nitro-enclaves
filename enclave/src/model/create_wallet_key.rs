@@ -10,7 +10,7 @@ use crate::credential::aws::is_debug_mode;
 use crate::credential::common::{Usage, WalletKeyBond};
 use crate::ed25519::new_key_pair;
 use crate::kms::{call_kms_encrypt, get_tee_client};
-use crate::model::{DecryptRequire, EnclaveRequest, validate_nonce_issue_at};
+use crate::model::{DecryptRequire, EnclaveRequest, validate_nonce_issued_at};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Request {
@@ -19,7 +19,7 @@ pub struct Request {
     pub pwd_pubkey: String,
     pub pwd_sig: String,
     pub create_key_assertion: String,
-    pub issue_at: i64,
+    pub issued_at: i64,
     pub nonce: String,
     pub key_id: String,
     pub region: String,
@@ -27,17 +27,24 @@ pub struct Request {
 
 impl EnclaveRequest<Request> {
     pub fn sign_payload(&self) -> String {
-        json!({
-            "type": Usage::CreatedWalletKey,
-            "issued_at": self.request.issue_at,
-            "nonce": self.request.nonce,
-        })
-        .to_string()
+        #[derive(Serialize)]
+        struct Payload {
+            r#type: Usage,
+            issued_at: i64,
+            nonce: String,
+        }
+        let payload = Payload {
+            r#type: Usage::CreatedWalletKey,
+            issued_at: self.request.issued_at,
+            nonce: self.request.nonce.clone(),
+        };
+
+        serde_json::to_string(&payload).unwrap()
     }
 
     pub fn validate(&self) -> Result<()> {
-        if self.request.issue_at == 0 {
-            println!("issue_at cannot be empty");
+        if self.request.issued_at == 0 {
+            println!("issued_at cannot be empty");
             Err(anyhow!(super::super::error::Error::ParamsInvalid.to_json()))?;
         }
 
@@ -59,9 +66,9 @@ impl EnclaveRequest<Request> {
     }
 
     pub fn create(&self) -> Result<(String, String)> {
-        tokio::runtime::Runtime::new()?.block_on(validate_nonce_issue_at(
+        tokio::runtime::Runtime::new()?.block_on(validate_nonce_issued_at(
             &self.request.nonce,
-            self.request.issue_at,
+            self.request.issued_at,
         ))?;
 
         let client = get_tee_client(&self)?;

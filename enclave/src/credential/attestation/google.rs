@@ -682,7 +682,7 @@ fn parse_verified_boot_state(value: u64) -> Result<VerifiedBootState> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::credential::common::sha256_bytes;
+    use crate::credential::common::{Usage, sha256_bytes};
     use base64::Engine as _;
     use base64::engine::general_purpose::STANDARD;
     use openssl::asn1::{Asn1Object, Asn1OctetString, Asn1Time};
@@ -693,6 +693,8 @@ mod tests {
     use openssl::pkey::{PKey, Private};
     use openssl::x509::extension::{BasicConstraints, KeyUsage};
     use openssl::x509::{X509, X509Extension, X509NameBuilder};
+    use serde::Serialize;
+    use serde_json::json;
     use std::fs;
     use std::path::PathBuf;
 
@@ -716,6 +718,38 @@ mod tests {
             super::verify_attestation2(&challenge, &sample.attestation_cert_chain_base64)?;
         assert_eq!(pubkey, expected_public_key.encode_bs64());
         println!("app_id={}", app_id);
+        Ok(())
+    }
+
+    #[test]
+    fn test_verify_attestation3() -> Result<()> {
+        let payload = r#"{"type": "TeeClientRegister","issued_at": 1779876890,"nonce": "1111"}"#;
+        println!("payload1={}", payload);
+        // #[derive(Serialize)]
+        // struct Payload {
+        //     r#type: String,
+        //     issued_at: u64,
+        //     nonce: String,
+        // }
+        // let payload = Payload {
+        //     r#type: "TeeClientRegister".into(),
+        //     issued_at: 1779876890,
+        //     nonce: "1111".into(),
+        // };
+
+        // let payload = serde_json::to_string(&payload)?;
+        println!("payload2={}", payload);
+        let attestation = vec![
+            "MIICzzCCAnagAwIBAgIBATAKBggqhkjOPQQDAjA5MQwwCgYDVQQKEwNURUUxKTAnBgNVBAMTIDQyMDk3ZTBlNDIzMWRmMTM2NThlYzBlMmIxM2M3YzhhMB4XDTcwMDEwMTAwMDAwMFoXDTQ4MDEwMTAwMDAwMFowHzEdMBsGA1UEAxMUQW5kcm9pZCBLZXlzdG9yZSBLZXkwWTATBgcqhkjOPQIBBggqhkjOPQMBBwNCAATToPvbpqOljEZ0Ll7mK/C9Xb+Iroeu1Px+T6e+YTiCgAphq0dJS4F9xhnH+uBOB8ErG+JyQscC9EZ0g5nllOCGo4IBhzCCAYMwDgYDVR0PAQH/BAQDAgeAMIIBbwYKKwYBBAHWeQIBEQSCAV8wggFbAgIBLAoBAQICASwKAQEERXsidHlwZSI6ICJUZWVDbGllbnRSZWdpc3RlciIsImlzc3VlZF9hdCI6IDE3Nzk4NzY4OTAsIm5vbmNlIjogIjExMTEifQQAMFq/hT0IAgYBnmkNdya/hUVKBEgwRjEgMB4EGGNvbS5jaGFpbmxlc3NhbmRyb2lkLmFwcAICAdgxIgQg+sYXRdwJA3hvue3mKpYrOZ9zSPC7b4mbgzJmdZEDO5wwgaWhCDEGAgECAgEDogMCAQOjBAICAQClBTEDAgEEqgMCAQG/g3gDAgECv4U+AwIBAL+FQEwwSgQgxdPHG8cNWOPgQJyp2bNMDbrB0vCaXelIpLjwkPGSaWUBAf8KAQAEIJqvC52VsnxoqY7f1TH86D49S1OAnpPL71WyXToG1QRFv4VBBQIDAiLgv4VCBQIDAxapv4VOBgIEATTaBb+FTwYCBAE02gUwCgYIKoZIzj0EAwIDRwAwRAIgMbMFxSDrWRJ0J5ccCNYZpZmcpIfPiknEgBYgZXsWvtYCIDzjA+nz7wEzFckOdfcmpQ327EBuywjCj30PsTf9Sser",
+            "MIIB3jCCAYWgAwIBAgIQQgl+DkIx3xNljsDisTx8ijAKBggqhkjOPQQDAjApMRMwEQYDVQQKEwpHb29nbGUgTExDMRIwEAYDVQQDEwlEcm9pZCBDQTMwHhcNMjYwNTE5MTQ0MTM4WhcNMjYwNTMxMTYyMDEyWjA5MQwwCgYDVQQKEwNURUUxKTAnBgNVBAMTIDQyMDk3ZTBlNDIzMWRmMTM2NThlYzBlMmIxM2M3YzhhMFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAElT93Zo5yQP51/8lo+p1eLqmhQ6nW609SVcunx+S1xZ4nVoeOjPE1DYIGZ5Xj3HXuartLJIcOitxUsQRP3zvI8aN/MH0wHQYDVR0OBBYEFOdCKUNucuGDl9i9j3EZsI07aNSoMB8GA1UdIwQYMBaAFBspkEi/wCKOYMVaMpZ/kPKe/g8yMA8GA1UdEwEB/wQFMAMBAf8wDgYDVR0PAQH/BAQDAgIEMBoGCisGAQQB1nkCAR4EDKIBGEADZlhpYW9taTAKBggqhkjOPQQDAgNHADBEAiBV/fRWn9WCunWTaUwUOaPoZrlkykTMoE+/uDQXjo9K/wIgCanwp9tW8hsmViA1FHPTrp7WW6rrwLDtoEUKBMsAQi8=",
+            "MIIC7zCCAnagAwIBAgIUAKHyL81ydz2n1WzKYet7TRHVC50wCgYIKoZIzj0EAwMwKTETMBEGA1UEChMKR29vZ2xlIExMQzESMBAGA1UEAxMJRHJvaWQgQ0EyMB4XDTI2MDUyMTA0NTEwOVoXDTI2MDczMDA0NTEwOFowKTETMBEGA1UEChMKR29vZ2xlIExMQzESMBAGA1UEAxMJRHJvaWQgQ0EzMFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEfChezzUNm6whLBCW0wJ7p0/2mS9OJIRG04AV99i15seZ8ftRukzZOyea/b3wAxjnFUBwMYUN4osxPzn34DQuEqOCAXowggF2MA4GA1UdDwEB/wQEAwICBDAPBgNVHRMBAf8EBTADAQH/MB0GA1UdDgQWBBQbKZBIv8AijmDFWjKWf5Dynv4PMjAfBgNVHSMEGDAWgBT7lO504bVwFpWJjoYiKJ1MD+HDHTCBjQYIKwYBBQUHAQEEgYAwfjB8BggrBgEFBQcwAoZwaHR0cDovL3ByaXZhdGVjYS1jb250ZW50LTY5OTRiMDk5LTAwMDAtMmI5ZC1iNjAxLWQ0M2EyY2ZjZjUyNy5zdG9yYWdlLmdvb2dsZWFwaXMuY29tLzA1NzI2ZTU0OTgwOTBkYzFjODE2L2NhLmNydDCBggYDVR0fBHsweTB3oHWgc4ZxaHR0cDovL3ByaXZhdGVjYS1jb250ZW50LTY5OTRiMDk5LTAwMDAtMmI5ZC1iNjAxLWQ0M2EyY2ZjZjUyNy5zdG9yYWdlLmdvb2dsZWFwaXMuY29tLzA1NzI2ZTU0OTgwOTBkYzFjODE2L2NybC5jcmwwCgYIKoZIzj0EAwMDZwAwZAIwIPc/mYW7ksW0EIr4tlCdsQbTFdYDAnM4nvPcRTxdHqZyFNdpWISuOIhnjSHc6eJxAjA22PY/1Ar2BJsGTkTmVbBLV1xoeQyTjN8YYR2q6Z1BYQee7i8MJvQr9YhNdIMCvm8=",
+            "MIICZDCCAeugAwIBAgIRAPLC/gLfzdARgeSj5rNpoowwCgYIKoZIzj0EAwMwUjEcMBoGA1UEAwwTS2V5IEF0dGVzdGF0aW9uIENBMTEQMA4GA1UECwwHQW5kcm9pZDETMBEGA1UECgwKR29vZ2xlIExMQzELMAkGA1UEBhMCVVMwHhcNMjYwMjA5MjAwMTExWhcNMjkwMjA4MjAwMTExWjApMRMwEQYDVQQKEwpHb29nbGUgTExDMRIwEAYDVQQDEwlEcm9pZCBDQTIwdjAQBgcqhkjOPQIBBgUrgQQAIgNiAATkwn4jOZw/zpxhsBn427C8Xz684+3Ajq5zsIzXwYlQPGieyFBuNxkUUFSa4YzZObqTOrgI9iFcfTBqOuOlyEtIuipjVowV9UCddBKO5ndqPTEk8Dd2RWn4yMtUTnyMMpGjga0wgaowHwYDVR0jBBgwFoAUUjK7LPtGQ5vc1oGpDmVm4DRB6kAwDwYDVR0TAQH/BAUwAwEB/zAdBgNVHQ4EFgQU+5TudOG1cBaViY6GIiidTA/hwx0wDgYDVR0PAQH/BAQDAgEGMEcGA1UdHwRAMD4wPKA6oDiGNmh0dHBzOi8vYW5kcm9pZC5nb29nbGVhcGlzLmNvbS9hdHRlc3RhdGlvbi9rZXlfY2ExLmNybDAKBggqhkjOPQQDAwNnADBkAjArwb7NmSVBlasMdMRjY0FFEum0b+SUZTMmvBT5AGYzk8xGCi2Mj2NZdchxZfxHUJgCMDseaiAzoixNISk40rfoR4vMvs7n9r4fgEgmb+9KQbpDgdq0+90mzcAL4vKr4hWSxA==",
+            "MIICIjCCAaigAwIBAgIRAISp0Cl7DrWK5/8OgN52BgUwCgYIKoZIzj0EAwMwUjEcMBoGA1UEAwwTS2V5IEF0dGVzdGF0aW9uIENBMTEQMA4GA1UECwwHQW5kcm9pZDETMBEGA1UECgwKR29vZ2xlIExMQzELMAkGA1UEBhMCVVMwHhcNMjUwNzE3MjIzMjE4WhcNMzUwNzE1MjIzMjE4WjBSMRwwGgYDVQQDDBNLZXkgQXR0ZXN0YXRpb24gQ0ExMRAwDgYDVQQLDAdBbmRyb2lkMRMwEQYDVQQKDApHb29nbGUgTExDMQswCQYDVQQGEwJVUzB2MBAGByqGSM49AgEGBSuBBAAiA2IABCPaI3FO3z5bBQo8cuiEas4HjqCtG/mLFfRT0MsIssPBEEU5Cfbt6sH5yOAxqEi5QagpU1yX4HwnGb7OtBYpDTB57uH5Eczm34A5FNijV3s0/f0UPl7zbJcTx6xwqMIRq6NCMEAwDwYDVR0TAQH/BAUwAwEB/zAOBgNVHQ8BAf8EBAMCAQYwHQYDVR0OBBYEFFIyuyz7RkOb3NaBqQ5lZuA0QepAMAoGCCqGSM49BAMDA2gAMGUCMETfjPO/HwqReR2CS7p0ZWoD/LHs6hDi422opifHEUaYLxwGlT9SLdjkVpz0UUOR5wIxAIoGyxGKRHVTpqpGRFiJtQEOOTp/+s1GcxeYuR2zh/80lQyu9vAFCj6E4AXc+osmRg==",
+        ];
+        let attestation: Vec<String> = attestation.iter().map(|x| x.to_string()).collect();
+
+        let (app_id, pubkey) = super::verify_attestation2(payload.as_bytes(), &attestation)?;
+        println!("app_id={},pubkey2={}", app_id, pubkey);
         Ok(())
     }
 

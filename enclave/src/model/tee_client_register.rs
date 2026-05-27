@@ -7,13 +7,13 @@ use crate::codec::json::JsonSerialize;
 use crate::credential::attestation::verify_attestation;
 use crate::credential::common::{Platform, TeeClient, Usage};
 use crate::kms::call_kms_encrypt;
-use crate::model::{DecryptRequire, EnclaveRequest, validate_nonce_issue_at};
+use crate::model::{DecryptRequire, EnclaveRequest, validate_nonce_issued_at};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Request {
     pub platform: Platform,
     pub attestation: Vec<String>,
-    pub issue_at: i64,
+    pub issued_at: i64,
     pub nonce: String,
     pub key_id: String,
     pub region: String,
@@ -21,15 +21,22 @@ pub struct Request {
 
 impl EnclaveRequest<Request> {
     pub fn sign_payload(&self) -> String {
-        json!({
-            "type": Usage::TeeClientRegister,
-            "issued_at": self.request.issue_at,
-            "nonce": self.request.nonce,
-        })
-        .to_string()
+        #[derive(Serialize)]
+        struct Payload {
+            r#type: Usage,
+            issued_at: i64,
+            nonce: String,
+        }
+        let payload = Payload {
+            r#type: Usage::CreatedWalletKey,
+            issued_at: self.request.issued_at,
+            nonce: self.request.nonce.clone(),
+        };
+
+        serde_json::to_string(&payload).unwrap()
     }
     pub fn validate(&self) -> Result<()> {
-        if self.request.issue_at == 0 {
+        if self.request.issued_at == 0 {
             println!("region cannot be empty");
             Err(anyhow!(super::super::error::Error::ParamsInvalid.to_json()))?;
         }
@@ -42,9 +49,9 @@ impl EnclaveRequest<Request> {
     }
 
     pub fn encrypt_tee_client(&self) -> Result<String> {
-        tokio::runtime::Runtime::new()?.block_on(validate_nonce_issue_at(
+        tokio::runtime::Runtime::new()?.block_on(validate_nonce_issued_at(
             &self.request.nonce,
-            self.request.issue_at,
+            self.request.issued_at,
         ))?;
         //let attestation = self.attestation()?;
         let (app_id, pubkey) = verify_attestation(

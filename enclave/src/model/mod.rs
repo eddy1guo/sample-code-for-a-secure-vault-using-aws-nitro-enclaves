@@ -65,17 +65,17 @@ pub async fn check_and_insert_nonce(now: i64, nonce: &str, issued_at: i64) -> bo
     true
 }
 
-pub async fn validate_nonce_issue_at(nonce: &str, issue_at: i64) -> Result<()> {
+pub async fn validate_nonce_issued_at(nonce: &str, issued_at: i64) -> Result<()> {
     let now = now_secs();
     if is_debug_mode()? {
         return Ok(());
     }
 
-    if now > issue_at + NONCE_EXPIRE_SECONDS {
+    if now > issued_at + NONCE_EXPIRE_SECONDS {
         return Err(anyhow!(super::error::Error::SigExpired.to_json()));
     }
 
-    if !check_and_insert_nonce(now, nonce, issue_at).await {
+    if !check_and_insert_nonce(now, nonce, issued_at).await {
         return Err(anyhow!(super::error::Error::RepeatedNonce.to_json()));
     }
     Ok(())

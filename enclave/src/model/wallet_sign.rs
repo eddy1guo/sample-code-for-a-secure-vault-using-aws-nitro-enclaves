@@ -9,7 +9,7 @@ use crate::credential::aws::is_debug_mode;
 use crate::credential::common::Usage;
 use crate::ed25519;
 use crate::kms::get_wallet_key_bond;
-use crate::model::{DecryptRequire, EnclaveRequest, validate_nonce_issue_at};
+use crate::model::{DecryptRequire, EnclaveRequest, validate_nonce_issued_at};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Request {
@@ -18,20 +18,28 @@ pub struct Request {
     pub pwd_sig: String,
     pub sign_assertion: String,
     pub message: String,
-    pub issue_at: i64,
+    pub issued_at: i64,
     pub nonce: String,
     pub region: String,
 }
 
 impl EnclaveRequest<Request> {
     pub fn sign_payload(&self) -> String {
-        json!({
-            "type": Usage::WalletSign,
-            "message": self.request.message,
-            "issued_at": self.request.issue_at,
-            "nonce": self.request.nonce,
-        })
-        .to_string()
+        #[derive(Serialize)]
+        struct Payload {
+            r#type: Usage,
+            message: String,
+            issued_at: i64,
+            nonce: String,
+        }
+        let payload = Payload {
+            r#type: Usage::CreatedWalletKey,
+            message: self.request.message.clone(),
+            issued_at: self.request.issued_at,
+            nonce: self.request.nonce.clone(),
+        };
+
+        serde_json::to_string(&payload).unwrap()
     }
 
     pub fn validate(&self) -> Result<()> {
@@ -50,7 +58,7 @@ impl EnclaveRequest<Request> {
             Err(anyhow!(super::super::error::Error::ParamsInvalid.to_json()))?;
         }
 
-        if self.request.issue_at == 0 {
+        if self.request.issued_at == 0 {
             println!("region cannot be empty");
             Err(anyhow!(super::super::error::Error::ParamsInvalid.to_json()))?;
         }
@@ -76,9 +84,9 @@ impl EnclaveRequest<Request> {
     pub fn sign(&self) -> Result<String> {
         self.validate()?;
 
-        tokio::runtime::Runtime::new()?.block_on(validate_nonce_issue_at(
+        tokio::runtime::Runtime::new()?.block_on(validate_nonce_issued_at(
             &self.request.nonce,
-            self.request.issue_at,
+            self.request.issued_at,
         ))?;
 
         let wallet_bond = get_wallet_key_bond(
