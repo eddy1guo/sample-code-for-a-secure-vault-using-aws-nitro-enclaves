@@ -28,7 +28,7 @@ impl EnclaveRequest<Request> {
             nonce: String,
         }
         let payload = Payload {
-            r#type: Usage::TeeClientRegister,
+            r#type: Usage::RegisterTeeDevice,
             issued_at: self.request.issued_at,
             nonce: self.request.nonce.clone(),
         };
@@ -63,7 +63,7 @@ impl EnclaveRequest<Request> {
             platform: self.request.platform.clone(),
             pubkey,
             app_id,
-            usage: Usage::TeeClientRegister,
+            usage: Usage::RegisterTeeDevice,
         }
         .serialize_json()?;
         call_kms_encrypt(

@@ -33,10 +33,24 @@ impl EnclaveRequest<Request> {
             nonce: String,
         }
         let payload = Payload {
-            r#type: Usage::WalletSign,
+            r#type: Usage::Sign,
             message: self.request.message.clone(),
             issued_at: self.request.issued_at,
             nonce: self.request.nonce.clone(),
+        };
+
+        serde_json::to_string(&payload).unwrap()
+    }
+
+    pub fn confirm_payload(&self) -> String {
+        #[derive(Serialize)]
+        struct Payload {
+            r#type: Usage,
+            message: String,
+        }
+        let payload = Payload {
+            r#type: Usage::ConfirmWalletKey,
+            message: self.request.key_bond_ciphertext.clone(),
         };
 
         serde_json::to_string(&payload).unwrap()
@@ -108,17 +122,18 @@ impl EnclaveRequest<Request> {
             &wallet_bond.app_id,
             &self.request.key_bond_confirmed_assertion,
             &wallet_bond.tee_device_pubkey,
-            &self.request.key_bond_ciphertext,
+            &self.confirm_payload(),
         )?;
 
-        // assertion校验
-        verify_assertion(
-            wallet_bond.client_platform,
-            &wallet_bond.app_id,
-            &self.request.sign_assertion,
-            &wallet_bond.tee_device_pubkey,
-            &self.sign_payload(),
-        )?;
+        // 和wallet_sign最大的不同就是没有assertion校验，
+        //另外此处也会增加帐号锁定机制，
+        // verify_assertion(
+        //     wallet_bond.client_platform,
+        //     &wallet_bond.app_id,
+        //     &self.request.sign_assertion,
+        //     &wallet_bond.tee_device_pubkey,
+        //     &self.sign_payload(),
+        // )?;
 
         let wallet_prikey_bytes = wallet_bond.wallet_prikey.decode_bs58().map_err(|e| {
             println!("{:?}", e);

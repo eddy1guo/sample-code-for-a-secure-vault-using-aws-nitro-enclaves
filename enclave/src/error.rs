@@ -22,6 +22,8 @@ pub enum Error {
     WalletIsLocked = 1005,
     AssertionVerifyFailed = 1006,
     PwdSigVerifyFailed = 1007,
+    KMSEncryptFailed = 1008,
+    KMSDecryptFailed = 1009,
 }
 
 #[derive(Debug, Serialize, Deserialize)]

@@ -2,18 +2,18 @@
 // SPDX-License-Identifier: MIT-0
 
 mod create_wallet_key;
-mod modify_pwd;
-mod tee_client_register;
-mod wallet_recovery;
-mod wallet_sign;
-mod wallet_sign_without_assertion;
+mod modify_password;
+mod register_tee_device;
+mod recover_wallet;
+mod sign;
+mod sign_without_assertion;
 
 pub use create_wallet_key::Request as CreateWalletKeyRequest;
-pub use modify_pwd::Request as ModifyPwdRequest;
-pub use tee_client_register::Request as TeeClientRegisterRequest;
-pub use wallet_recovery::Request as WalletRecoveryRequest;
-pub use wallet_sign::Request as WalletSignRequest;
-pub use wallet_sign_without_assertion::Request as wallet_sign_without_assertionRequest;
+pub use modify_password::Request as ModifyPwdRequest;
+pub use register_tee_device::Request as TeeClientRegisterRequest;
+pub use recover_wallet::Request as WalletRecoveryRequest;
+pub use sign::Request as WalletSignRequest;
+pub use sign_without_assertion::Request as wallet_sign_without_assertionRequest;
 
 use std::collections::HashMap;
 use std::fmt;
@@ -42,6 +42,7 @@ use crate::codec::bs58::DecodeBs58;
 use crate::codec::hex::DecodeHex;
 use crate::constants::{ENCODING_BINARY, ENCODING_HEX, MAX_FIELDS, P256, P384, P521};
 use crate::credential::aws::{get_attestation_document, is_debug_mode};
+use crate::credential::common::Usage;
 use crate::ed25519;
 use crate::functions::{now_millis, now_secs};
 use crate::hpke::decrypt_value;
@@ -326,9 +327,25 @@ pub trait DecryptRequire {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct KeyBond {
+pub struct ConfirmedKeyBond {
     pub ciphertext: String,
     pub confirmed_assertion: String,
+}
+
+impl ConfirmedKeyBond {
+    pub fn confirm_payload(&self) -> String {
+        #[derive(Serialize)]
+        struct Payload {
+            r#type: Usage,
+            message: String,
+        }
+        let payload = Payload {
+            r#type: Usage::ConfirmWalletKey,
+            message: self.ciphertext.clone(),
+        };
+
+        serde_json::to_string(&payload).unwrap()
+    }
 }
 
 //验证密码签名

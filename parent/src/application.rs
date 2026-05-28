@@ -169,9 +169,15 @@ pub fn create_router(options: ParentOptions, enclaves: Arc<Enclaves>) -> Router 
         .route("/enclaves", get(routes::get_enclaves))
         //.route("/enclaves", post(routes::run_enclave))
         .route("/decrypt", post(routes::decrypt))
-        .route("/wallet_sign", post(routes::wallet_sign))
+        .route("/sign", post(routes::sign))
+        .route(
+            "/sign_without_assertion",
+            post(routes::sign_without_assertion),
+        )
         .route("/create_wallet_key", post(routes::create_wallet_key))
-        .route("/tee_client_register", post(routes::tee_client_register))
+        .route("/modify_password", post(routes::modify_password))
+        .route("/recover_wallet", post(routes::recover_wallet))
+        .route("/register_tee_device", post(routes::register_tee_device))
         .with_state(state)
         .layer(RequestBodyLimitLayer::new(REQUEST_BODY_LIMIT))
         .layer(TimeoutLayer::with_status_code(

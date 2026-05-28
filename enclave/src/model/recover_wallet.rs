@@ -11,13 +11,14 @@ use crate::credential::aws::is_debug_mode;
 use crate::credential::common::Usage;
 use crate::ed25519::{self, ExtractPubkey};
 use crate::functions::now_millis;
-use crate::kms::{call_kms_encrypt, get_wallet_key_bond};
-use crate::model::{DecryptRequire, EnclaveRequest, KeyBond, validate_nonce_issued_at};
+use crate::kms::{call_kms_encrypt, get_tee_client, get_tee_client2, get_wallet_key_bond};
+use crate::model::{ConfirmedKeyBond, DecryptRequire, EnclaveRequest, validate_nonce_issued_at};
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Request {
-    pub key_bonds: Vec<KeyBond>,
-    pub new_pwd_pubkey: String,
-    pub new_pwd_sig: String,
+    pub new_device_ciphertext: String,
+    pub new_device_confirmed_assertion: String,
+    pub key_bonds: Vec<ConfirmedKeyBond>,
+    pub pwd_sig: String,
     pub assertion: String,
     pub issued_at: i64,
     pub nonce: String,
@@ -34,9 +35,23 @@ impl EnclaveRequest<Request> {
             nonce: String,
         }
         let payload = Payload {
-            r#type: Usage::ModifyPwd,
+            r#type: Usage::RecoverWallet,
             issued_at: self.request.issued_at,
             nonce: self.request.nonce.clone(),
+        };
+
+        serde_json::to_string(&payload).unwrap()
+    }
+
+    pub fn confirm_payload(&self) -> String {
+        #[derive(Serialize)]
+        struct Payload {
+            r#type: Usage,
+            message: String,
+        }
+        let payload = Payload {
+            r#type: Usage::ConfirmTeeDevice,
+            message: self.request.new_device_ciphertext.clone(),
         };
 
         serde_json::to_string(&payload).unwrap()
@@ -84,13 +99,33 @@ impl EnclaveRequest<Request> {
             self.request.issued_at,
         ))?;
 
+        let new_device = get_tee_client2(&self)?;
+
+        //先验证新客户端对kms加密结果的认证
+        let _counter = verify_assertion(
+            new_device.platform.clone(),
+            &new_device.app_id,
+            &self.request.new_device_confirmed_assertion,
+            &new_device.pubkey,
+            &self.confirm_payload(),
+        )?;
+
+        //这里仅为了提取pwd_pubkey，任何一个成员的都行
         let wallet_bond = get_wallet_key_bond(
             &self.credential,
             &self.request.key_bonds[0].ciphertext,
             &self.request.region,
         )?;
 
+        //验证密码签名
+        super::verify_pwd_sig(
+            &self.sign_payload(),
+            &wallet_bond.pwd_pubkey,
+            &self.request.pwd_sig,
+        )?;
+
         // 当前recovery和modify_pwd的区别就是不再校验硬件证明
+        // 且修改所有的key的主设备，因为recovery一定是只能恢复成主设备
         //todo: 后续会加上 帐号密码试错的锁定的机制
         // verify_assertion(
         //     wallet_bond.client_platform,
@@ -99,13 +134,6 @@ impl EnclaveRequest<Request> {
         //     &wallet_bond.tee_device_pubkey,
         //     &self.sign_payload(),
         // )?;
-
-        //验证密码签名
-        super::verify_pwd_sig(
-            &self.sign_payload(),
-            &self.request.new_pwd_pubkey,
-            &self.request.new_pwd_sig,
-        )?;
 
         //校验每个key的客户端确认签名并且解密后换绑重新加密
         let mut new_key_bonds = vec![];
@@ -120,10 +148,19 @@ impl EnclaveRequest<Request> {
                 wallet_bond.client_platform.clone(),
                 &wallet_bond.app_id,
                 &bond.confirmed_assertion,
-                &wallet_bond.tee_device_pubkey,
-                &bond.ciphertext,
-            )?;
-            wallet_bond.pwd_pubkey = self.request.new_pwd_pubkey.clone();
+                &wallet_bond.master_device_pubkey,
+                &bond.confirm_payload(),
+            )
+            .map_err(|e| {
+                println!("{:?}", e);
+                anyhow!(crate::error::Error::AssertionVerifyFailed.to_json())
+            })?;
+            // 新设备作为所有旧设备的主设备
+            wallet_bond.master_device_pubkey = new_device.pubkey.clone();
+            // 对于旧的主设备还要更新自身key
+            if wallet_bond.is_master() {
+                wallet_bond.tee_device_pubkey = new_device.pubkey.clone();
+            }
             let wallet_pubkey = wallet_bond.wallet_prikey.extract_pubkey()?;
             let plaint_text = wallet_bond.serialize_json()?;
             println!("{},time={}", line!(), now_millis());

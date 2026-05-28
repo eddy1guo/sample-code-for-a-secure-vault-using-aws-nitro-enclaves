@@ -324,10 +324,25 @@ pub enum EnclaveAction {
         #[serde(flatten)]
         inner: EnclaveRequest<CreateWalletKeyRequest>,
     },
+    #[serde(rename = "modify_password")]
+    ModifyPassword {
+        #[serde(flatten)]
+        inner: EnclaveRequest<ModifyPasswordRequest>,
+    },
+    #[serde(rename = "recover_wallet")]
+    RecoverWallet {
+        #[serde(flatten)]
+        inner: EnclaveRequest<RecoverWalletRequest>,
+    },
+    #[serde(rename = "sign_without_assertion")]
+    SignWithoutAssertion {
+        #[serde(flatten)]
+        inner: EnclaveRequest<SignWithoutAssertionRequest>,
+    },
     #[serde(rename = "tee_client_register")]
     TeeClientRegister {
         #[serde(flatten)]
-        inner: EnclaveRequest<TeeClientRegisterRequest>,
+        inner: EnclaveRequest<RegisterTeeDeviceRequest>,
     },
 }
 
@@ -362,11 +377,23 @@ pub struct WalletSignRequest {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Validate)]
+pub struct ConfirmedKeyBond {
+    #[validate(length(min = 1, max = "MAX_ENCRYPTED_KEY_LENGTH"))]
+    pub ciphertext: String,
+    #[validate(length(min = 1, max = 1000000000))]
+    pub confirmed_assertion: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Validate)]
 pub struct CreateWalletKeyRequest {
     #[validate(length(min = 1, max = 1000000000))]
     pub device_ciphertext: String,
     #[validate(length(min = 1, max = 1000000000))]
     pub device_confirmed_assertion: String,
+    #[validate(length(min = 1, max = 1000000000))]
+    pub bind_device_ciphertext: String,
+    #[validate(length(min = 1, max = 1000000000))]
+    pub bind_device_confirmed_assertion: String,
     pub pwd_pubkey: String,
     pub pwd_sig: String,
     #[validate(length(min = 1, max = 1000000000))]
@@ -374,6 +401,62 @@ pub struct CreateWalletKeyRequest {
     pub issued_at: i64,
     pub nonce: String,
     pub key_id: String,
+    pub region: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Validate)]
+pub struct ModifyPasswordRequest {
+    #[validate(length(min = 1))]
+    pub key_bonds: Vec<ConfirmedKeyBond>,
+    pub new_pwd_pubkey: String,
+    pub new_pwd_sig: String,
+    #[validate(length(min = 1, max = 1000000000))]
+    pub assertion: String,
+    pub issued_at: i64,
+    #[validate(length(min = 1, max = 1000000000))]
+    pub nonce: String,
+    pub key_id: String,
+    #[validate(length(min = 1, max = "MAX_REGION_LENGTH"))]
+    #[validate(custom(function = "validate_aws_region"))]
+    pub region: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Validate)]
+pub struct RecoverWalletRequest {
+    #[validate(length(min = 1, max = 1000000000))]
+    pub new_device_ciphertext: String,
+    #[validate(length(min = 1, max = 1000000000))]
+    pub new_device_confirmed_assertion: String,
+    #[validate(length(min = 1))]
+    pub key_bonds: Vec<ConfirmedKeyBond>,
+    pub pwd_sig: String,
+    #[validate(length(min = 1, max = 1000000000))]
+    pub assertion: String,
+    pub issued_at: i64,
+    #[validate(length(min = 1, max = 1000000000))]
+    pub nonce: String,
+    pub key_id: String,
+    #[validate(length(min = 1, max = "MAX_REGION_LENGTH"))]
+    #[validate(custom(function = "validate_aws_region"))]
+    pub region: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Validate)]
+pub struct SignWithoutAssertionRequest {
+    #[validate(length(min = 1, max = "MAX_ENCRYPTED_KEY_LENGTH"))]
+    pub key_bond_ciphertext: String,
+    #[validate(length(min = 1, max = 1000000000))]
+    pub key_bond_confirmed_assertion: String,
+    pub pwd_sig: String,
+    #[validate(length(min = 1, max = 1000000000))]
+    pub sign_assertion: String,
+    #[validate(length(min = 1, max = 1000000000))]
+    pub message: String,
+    pub issued_at: i64,
+    #[validate(length(min = 1, max = 1000000000))]
+    pub nonce: String,
+    #[validate(length(min = 1, max = "MAX_REGION_LENGTH"))]
+    #[validate(custom(function = "validate_aws_region"))]
     pub region: String,
 }
 
@@ -385,7 +468,7 @@ pub enum Platform {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Validate)]
-pub struct TeeClientRegisterRequest {
+pub struct RegisterTeeDeviceRequest {
     pub attestation: Vec<String>,
     pub platform: Platform,
     pub issued_at: i64,

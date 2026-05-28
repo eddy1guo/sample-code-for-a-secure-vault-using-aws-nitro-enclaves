@@ -25,6 +25,7 @@ pub struct WalletKeyBond {
     pub client_platform: Platform,
     // app package name
     pub app_id: String,
+    pub master_device_pubkey: String,
     pub tee_device_pubkey: String,
     pub pwd_pubkey: String,
     pub wallet_prikey: String,
@@ -42,6 +43,10 @@ impl WalletKeyBond {
             usage: self.usage,
         }
     }
+
+    pub fn is_master(&self) -> bool {
+        self.tee_device_pubkey == self.master_device_pubkey
+    }
 }
 
 #[derive(Deserialize, Serialize, Debug, Display, EnumString, PartialEq, Eq, Clone)]
@@ -52,14 +57,14 @@ pub enum Platform {
 
 #[derive(Deserialize, Serialize, Debug, Display, EnumString, PartialEq, Eq, Clone)]
 pub enum Usage {
-    TeeClientRegister,
-    ConfirmTeeClientRegister,
-    CreatedWalletKey,
-    ConfirmCreatedWalletKey,
-    WalletSign,
-    WalletSignWithoutAssertion,
-    WalletRecovery,
-    ModifyPwd,
+    RegisterTeeDevice,
+    ConfirmTeeDevice,
+    CreateWalletKey,
+    ConfirmWalletKey,
+    Sign,
+    SignWithoutAssertion,
+    RecoverWallet,
+    ModifyPassword,
 }
 
 pub fn sha256_bytes(data: &[u8]) -> Vec<u8> {

@@ -12,10 +12,10 @@ use crate::credential::common::Usage;
 use crate::ed25519::{self, ExtractPubkey};
 use crate::functions::now_millis;
 use crate::kms::{call_kms_encrypt, get_wallet_key_bond};
-use crate::model::{DecryptRequire, EnclaveRequest, KeyBond, validate_nonce_issued_at};
+use crate::model::{ConfirmedKeyBond, DecryptRequire, EnclaveRequest, validate_nonce_issued_at};
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Request {
-    pub key_bonds: Vec<KeyBond>,
+    pub key_bonds: Vec<ConfirmedKeyBond>,
     pub new_pwd_pubkey: String,
     pub new_pwd_sig: String,
     pub assertion: String,
@@ -34,7 +34,7 @@ impl EnclaveRequest<Request> {
             nonce: String,
         }
         let payload = Payload {
-            r#type: Usage::ModifyPwd,
+            r#type: Usage::ModifyPassword,
             issued_at: self.request.issued_at,
             nonce: self.request.nonce.clone(),
         };
@@ -119,9 +119,13 @@ impl EnclaveRequest<Request> {
                 wallet_bond.client_platform.clone(),
                 &wallet_bond.app_id,
                 &bond.confirmed_assertion,
-                &wallet_bond.tee_device_pubkey,
-                &bond.ciphertext,
-            )?;
+                &wallet_bond.master_device_pubkey,
+                &bond.confirm_payload(),
+            )
+            .map_err(|e| {
+                println!("{:?}", e);
+                anyhow!(crate::error::Error::AssertionVerifyFailed.to_json())
+            })?;
             wallet_bond.pwd_pubkey = self.request.new_pwd_pubkey.clone();
             let wallet_pubkey = wallet_bond.wallet_prikey.extract_pubkey()?;
             let plaint_text = wallet_bond.serialize_json()?;

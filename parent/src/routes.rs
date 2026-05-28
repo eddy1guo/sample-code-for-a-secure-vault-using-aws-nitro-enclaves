@@ -20,12 +20,13 @@ use std::sync::Arc;
 use crate::application::AppState;
 use crate::constants;
 use crate::errors::AppError;
-use crate::models::{
-    ApiResponse, Credential, EnclaveAction, EnclaveDescribeInfo, EnclaveRequest,
-    EnclaveResponse, EnclaveRunInfo, ParentRequest, TeeClientRegisterRequest,
-};
 use crate::models::CreateWalletKeyRequest;
 use crate::models::WalletSignRequest;
+use crate::models::{
+    ApiResponse, Credential, EnclaveAction, EnclaveDescribeInfo, EnclaveRequest, EnclaveResponse,
+    EnclaveRunInfo, ModifyPasswordRequest, ParentRequest, RecoverWalletRequest,
+    RegisterTeeDeviceRequest, SignWithoutAssertionRequest,
+};
 use axum::Json;
 use axum::extract::State;
 use axum::response::IntoResponse;
@@ -189,10 +190,8 @@ pub async fn decrypt(
         "[parent] validating decrypt request for vault_id: {}",
         request.vault_id
     );
-    let response = call_enclave_with_request(state, request, |inner| EnclaveAction::Decrypt {
-        inner,
-    })
-    .await?;
+    let response =
+        call_enclave_with_request(state, request, |inner| EnclaveAction::Decrypt { inner }).await?;
 
     Ok(Json(into_api_response(response)))
 }
@@ -211,12 +210,24 @@ pub async fn create_wallet_key(
 }
 
 #[tracing::instrument(skip(state, request))]
-pub async fn wallet_sign(
+pub async fn sign(
     State(state): State<Arc<AppState>>,
     Json(request): Json<WalletSignRequest>,
 ) -> Result<Json<ApiResponse>, AppError> {
-    let response = call_enclave_with_request(state, request, |inner| EnclaveAction::WalletSign {
-        inner,
+    let response =
+        call_enclave_with_request(state, request, |inner| EnclaveAction::WalletSign { inner })
+            .await?;
+
+    Ok(Json(into_api_response(response)))
+}
+
+#[tracing::instrument(skip(state, request))]
+pub async fn modify_password(
+    State(state): State<Arc<AppState>>,
+    Json(request): Json<ModifyPasswordRequest>,
+) -> Result<Json<ApiResponse>, AppError> {
+    let response = call_enclave_with_request(state, request, |inner| {
+        EnclaveAction::ModifyPassword { inner }
     })
     .await?;
 
@@ -224,9 +235,35 @@ pub async fn wallet_sign(
 }
 
 #[tracing::instrument(skip(state, request))]
-pub async fn tee_client_register(
+pub async fn recover_wallet(
     State(state): State<Arc<AppState>>,
-    Json(request): Json<TeeClientRegisterRequest>,
+    Json(request): Json<RecoverWalletRequest>,
+) -> Result<Json<ApiResponse>, AppError> {
+    let response = call_enclave_with_request(state, request, |inner| {
+        EnclaveAction::RecoverWallet { inner }
+    })
+    .await?;
+
+    Ok(Json(into_api_response(response)))
+}
+
+#[tracing::instrument(skip(state, request))]
+pub async fn sign_without_assertion(
+    State(state): State<Arc<AppState>>,
+    Json(request): Json<SignWithoutAssertionRequest>,
+) -> Result<Json<ApiResponse>, AppError> {
+    let response = call_enclave_with_request(state, request, |inner| {
+        EnclaveAction::SignWithoutAssertion { inner }
+    })
+    .await?;
+
+    Ok(Json(into_api_response(response)))
+}
+
+#[tracing::instrument(skip(state, request))]
+pub async fn register_tee_device(
+    State(state): State<Arc<AppState>>,
+    Json(request): Json<RegisterTeeDeviceRequest>,
 ) -> Result<Json<ApiResponse>, AppError> {
     let response = call_enclave_with_request(state, request, |inner| {
         EnclaveAction::TeeClientRegister { inner }

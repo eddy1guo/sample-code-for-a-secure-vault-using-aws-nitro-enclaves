@@ -115,17 +115,43 @@ pub fn call_kms_encrypt(
 }
 
 //解密在设备注册时候的密文结果获取tee的密钥公钥明文
-pub fn get_tee_client(payload: &EnclaveRequest<CreateWalletKeyRequest>) -> Result<TeeClient> {
+pub fn get_tee_client(
+    payload: &EnclaveRequest<CreateWalletKeyRequest>,
+    device_ciphertext: &str,
+) -> Result<TeeClient> {
     println!("{}:{}", file!(), line!());
     let plaintext = call_kms_decrypt(
         &payload.credential,
-        &payload.request.device_ciphertext,
+        device_ciphertext,
         &payload.request.region,
     )
     .map_err(|err| anyhow!("failed to call KMS: {err:?}"))?;
 
     let client: TeeClient = serde_json::from_slice(&plaintext)?;
-    if client.usage != Usage::TeeClientRegister {
+    if client.usage != Usage::RegisterTeeDevice {
+        bail!("Usage not matched!");
+    }
+    println!(
+        "[enclave:plaintext_pubkey] KMS decrypted private key length: {:?}",
+        client
+    );
+
+    Ok(client)
+}
+
+use crate::model::WalletRecoveryRequest;
+//todo: 整理
+pub fn get_tee_client2(payload: &EnclaveRequest<WalletRecoveryRequest>) -> Result<TeeClient> {
+    println!("{}:{}", file!(), line!());
+    let plaintext = call_kms_decrypt(
+        &payload.credential,
+        &payload.request.new_device_ciphertext,
+        &payload.request.region,
+    )
+    .map_err(|err| anyhow!("failed to call KMS: {err:?}"))?;
+
+    let client: TeeClient = serde_json::from_slice(&plaintext)?;
+    if client.usage != Usage::RegisterTeeDevice {
         bail!("Usage not matched!");
     }
     println!(
@@ -147,7 +173,7 @@ pub fn get_wallet_key_bond(
         .map_err(|err| anyhow!("failed to call KMS: {err:?}"))?;
 
     let client: WalletKeyBond = serde_json::from_slice(&plaintext)?;
-    if client.usage != Usage::CreatedWalletKey {
+    if client.usage != Usage::CreateWalletKey {
         bail!("Usage is {}.expect CreatedWalletKey", client.usage);
     }
     println!(
