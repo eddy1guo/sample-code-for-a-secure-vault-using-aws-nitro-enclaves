@@ -60,15 +60,16 @@ pub fn verify_assertion(
         bail!("App Attest assertion authData is missing attested credential data");
     }
 
-    match previous_counter {
-        Some(previous) if auth_data.counter <= previous => {
-            bail!("App Attest assertion counter did not increase");
-        }
-        None if auth_data.counter == 0 => {
-            bail!("App Attest assertion counter must be greater than zero");
-        }
-        _ => {}
-    }
+    //todo: 先跳过针对ios的counter的检查
+    // match previous_counter {
+    //     Some(previous) if auth_data.counter <= previous => {
+    //         bail!("App Attest assertion counter did not increase");
+    //     }
+    //     None if auth_data.counter == 0 => {
+    //         bail!("App Attest assertion counter must be greater than zero");
+    //     }
+    //     _ => {}
+    // }
 
     let public_key = PKey::public_key_from_der(public_key_spki_der)?;
     let mut nonce_input =

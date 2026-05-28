@@ -2,13 +2,14 @@ use anyhow::{Result, anyhow};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 
-use crate::codec::bs58::EncodeBs58;
+use crate::codec::bs58::{DecodeBs58, EncodeBs58};
 use crate::codec::hex::EncodeHex;
 use crate::codec::json::JsonSerialize;
 use crate::credential::assertion::verify_assertion;
 use crate::credential::aws::is_debug_mode;
 use crate::credential::common::{Usage, WalletKeyBond};
-use crate::ed25519::new_key_pair;
+use crate::ed25519::{self, new_key_pair};
+use crate::error::Error;
 use crate::kms::{call_kms_encrypt, get_tee_client};
 use crate::model::{DecryptRequire, EnclaveRequest, validate_nonce_issued_at};
 
@@ -70,21 +71,30 @@ impl EnclaveRequest<Request> {
             &self.request.nonce,
             self.request.issued_at,
         ))?;
+        //验证密码签名
+        super::verify_pwd_sig(
+            &self.sign_payload(),
+            &self.request.pwd_pubkey,
+            &self.request.pwd_sig,
+        )?;
 
         let client = get_tee_client(&self)?;
-        let counter = if is_debug_mode()? {
-            println!("skip verification for debug mode");
-            Some(1)
-        } else {
-            verify_assertion(
-                client.platform.clone(),
-                &client.app_id,
-                &self.request.create_key_assertion,
-                &client.pubkey,
-                Some(0),
-                &self.sign_payload(),
-            )?
-        };
+        //先验证客户端对kms加密结果的认证
+        let _counter = verify_assertion(
+            client.platform.clone(),
+            &client.app_id,
+            &self.request.device_confirmed_assertion,
+            &client.pubkey,
+            &self.request.device_ciphertext,
+        )?;
+        //验证客户端对本次创建tee-key的签名
+        let counter = verify_assertion(
+            client.platform.clone(),
+            &client.app_id,
+            &self.request.create_key_assertion,
+            &client.pubkey,
+            &self.sign_payload(),
+        )?;
         let key_pair = new_key_pair();
         let wallet_prikey = key_pair.0.encode_bs58();
         let wallet_pubkey = key_pair.1.encode_bs58();

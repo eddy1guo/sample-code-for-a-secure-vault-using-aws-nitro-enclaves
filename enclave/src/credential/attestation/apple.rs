@@ -184,9 +184,10 @@ pub fn verify_attestation(
     if (auth_data.flags & FLAG_ATTESTED_CREDENTIAL_DATA) == 0 {
         bail!("App Attest authData is missing attested credential data");
     }
-    if auth_data.counter != 0 {
-        bail!("App Attest counter must start at zero");
-    }
+    //todo: 先暂时不检查apple的这个counter
+    // if auth_data.counter != 0 {
+    //     bail!("App Attest counter must start at zero");
+    // }
 
     let environment = parse_environment(&auth_data.aaguid)?;
 

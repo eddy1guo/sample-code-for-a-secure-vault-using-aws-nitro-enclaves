@@ -95,18 +95,30 @@ impl EnclaveRequest<Request> {
             &self.request.region,
         )?;
 
-        if is_debug_mode()? {
-            println!("skip verification for debug mode");
-        } else {
-            verify_assertion(
-                wallet_bond.client_platform,
-                &wallet_bond.app_id,
-                &self.request.sign_assertion,
-                &wallet_bond.tee_device_pubkey,
-                wallet_bond.counter,
-                &self.sign_payload(),
-            )?;
-        }
+        //验证密码签名
+        super::verify_pwd_sig(
+            &self.sign_payload(),
+            &wallet_bond.pwd_pubkey,
+            &self.request.pwd_sig,
+        )?;
+
+        //对key_bond_confirmed_assertion的校验
+        let _counter = verify_assertion(
+            wallet_bond.client_platform.clone(),
+            &wallet_bond.app_id,
+            &self.request.key_bond_confirmed_assertion,
+            &wallet_bond.tee_device_pubkey,
+            &self.request.key_bond_ciphertext,
+        )?;
+
+        // assertion校验
+        verify_assertion(
+            wallet_bond.client_platform,
+            &wallet_bond.app_id,
+            &self.request.sign_assertion,
+            &wallet_bond.tee_device_pubkey,
+            &self.sign_payload(),
+        )?;
 
         let wallet_prikey_bytes = wallet_bond.wallet_prikey.decode_bs58().map_err(|e| {
             println!("{:?}", e);

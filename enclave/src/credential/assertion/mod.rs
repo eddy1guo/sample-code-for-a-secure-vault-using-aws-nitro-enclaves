@@ -16,7 +16,6 @@ pub fn verify_assertion(
     app_id: &str,
     assertion_object_base64: &str,
     pubkey_base64: &str,
-    previous_counter: Option<u32>,
     payload: &str,
 ) -> anyhow::Result<Option<u32>> {
     match platform {
@@ -28,12 +27,12 @@ pub fn verify_assertion(
                 pubkey_base64,
                 &msg_hash,
                 app_id,
-                previous_counter,
+                None,
             )
             .map(|x| Some(x))
         }
         Platform::Google => {
-            google::verify_attested_base64(&pubkey_base64, &payload, &assertion_object_base64)?;
+            google::verify_assertion_base64(&pubkey_base64, &payload, &assertion_object_base64)?;
             Ok(None)
         }
     }

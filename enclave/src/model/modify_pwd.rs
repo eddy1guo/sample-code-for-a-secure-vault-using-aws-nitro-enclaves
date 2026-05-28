@@ -4,33 +4,25 @@ use serde_json::json;
 
 use crate::codec::bs58::{DecodeBs58, EncodeBs58};
 use crate::codec::bs64::DecodeBs64;
+use crate::codec::hex::EncodeHex;
+use crate::codec::json::JsonSerialize;
 use crate::credential::assertion::verify_assertion;
 use crate::credential::aws::is_debug_mode;
 use crate::credential::common::Usage;
-use crate::ed25519;
-use crate::kms::get_wallet_key_bond;
-use crate::model::{DecryptRequire, EnclaveRequest, validate_nonce_issued_at};
-
+use crate::ed25519::{self, ExtractPubkey};
+use crate::functions::now_millis;
+use crate::kms::{call_kms_encrypt, get_wallet_key_bond};
+use crate::model::{DecryptRequire, EnclaveRequest, KeyBond, validate_nonce_issued_at};
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Request {
-    pub key_bond_ciphertext: String,
-    pub key_bond_confirmed_assertion: String,
-    pub pwd_sig: String,
-    pub sign_assertion: String,
-    pub message: String,
+    pub key_bonds: Vec<KeyBond>,
+    pub new_pwd_pubkey: String,
+    pub new_pwd_sig: String,
+    pub assertion: String,
     pub issued_at: i64,
     pub nonce: String,
+    pub key_id: String,
     pub region: String,
-}
-
-impl DecryptRequire for Request {
-    fn ciphertext(&self) -> &String {
-        &self.key_bond_ciphertext
-    }
-
-    fn region(&self) -> &String {
-        &self.region
-    }
 }
 
 impl EnclaveRequest<Request> {
@@ -38,13 +30,11 @@ impl EnclaveRequest<Request> {
         #[derive(Serialize)]
         struct Payload {
             r#type: Usage,
-            message: String,
             issued_at: i64,
             nonce: String,
         }
         let payload = Payload {
             r#type: Usage::ModifyPwd,
-            message: self.request.message.clone(),
             issued_at: self.request.issued_at,
             nonce: self.request.nonce.clone(),
         };
@@ -53,18 +43,13 @@ impl EnclaveRequest<Request> {
     }
 
     pub fn validate(&self) -> Result<()> {
-        if self.request.key_bond_ciphertext.is_empty() {
+        if self.request.key_bonds.is_empty() {
             println!("vault_id cannot be empty");
             Err(anyhow!(super::super::error::Error::ParamsInvalid.to_json()))?;
         }
 
-        if self.request.sign_assertion.is_empty() {
+        if self.request.assertion.is_empty() {
             println!("in product mode,signature can't be none");
-            Err(anyhow!(super::super::error::Error::ParamsInvalid.to_json()))?;
-        }
-
-        if self.request.message.is_empty() {
-            println!("region cannot be empty");
             Err(anyhow!(super::super::error::Error::ParamsInvalid.to_json()))?;
         }
 
@@ -91,7 +76,7 @@ impl EnclaveRequest<Request> {
         Ok(())
     }
 
-    pub fn sign(&self) -> Result<String> {
+    pub fn execute(&self) -> Result<Vec<(String, String)>> {
         self.validate()?;
 
         tokio::runtime::Runtime::new()?.block_on(validate_nonce_issued_at(
@@ -101,37 +86,58 @@ impl EnclaveRequest<Request> {
 
         let wallet_bond = get_wallet_key_bond(
             &self.credential,
-            &self.request.key_bond_ciphertext,
+            &self.request.key_bonds[0].ciphertext,
             &self.request.region,
         )?;
 
-        if is_debug_mode()? {
-            println!("skip verification for debug mode");
-        } else {
+        // 校验修改密码的签名
+        verify_assertion(
+            wallet_bond.client_platform,
+            &wallet_bond.app_id,
+            &self.request.assertion,
+            &wallet_bond.tee_device_pubkey,
+            &self.sign_payload(),
+        )?;
+
+        //验证密码签名
+        super::verify_pwd_sig(
+            &self.sign_payload(),
+            &self.request.new_pwd_pubkey,
+            &self.request.new_pwd_sig,
+        )?;
+
+        //校验每个key的客户端确认签名并且解密后换绑重新加密
+        let mut new_key_bonds = vec![];
+        println!("{},time={}", line!(), now_millis());
+        for bond in self.request.key_bonds.iter() {
+            println!("{},time={}", line!(), now_millis());
+            let mut wallet_bond =
+                get_wallet_key_bond(&self.credential, &bond.ciphertext, &self.request.region)?;
+            println!("{},time={}", line!(), now_millis());
+
             verify_assertion(
-                wallet_bond.client_platform,
+                wallet_bond.client_platform.clone(),
                 &wallet_bond.app_id,
-                &self.request.sign_assertion,
+                &bond.confirmed_assertion,
                 &wallet_bond.tee_device_pubkey,
-                wallet_bond.counter,
-                &self.sign_payload(),
+                &bond.ciphertext,
             )?;
+            wallet_bond.pwd_pubkey = self.request.new_pwd_pubkey.clone();
+            let wallet_pubkey = wallet_bond.wallet_prikey.extract_pubkey()?;
+            let plaint_text = wallet_bond.serialize_json()?;
+            println!("{},time={}", line!(), now_millis());
+            let key_bond_ciphertext = call_kms_encrypt(
+                &self.credential,
+                &plaint_text,
+                &self.request.region,
+                &self.request.key_id,
+            )
+            .map_err(|err| anyhow!("failed to call KMS:call_kms_encrypt: {err:?}"))?
+            .encode_hex();
+            println!("{},time={}", line!(), now_millis());
+            new_key_bonds.push((key_bond_ciphertext, wallet_pubkey))
         }
-
-        let wallet_prikey_bytes = wallet_bond.wallet_prikey.decode_bs58().map_err(|e| {
-            println!("{:?}", e);
-            anyhow!(super::super::error::Error::ParamsInvalid.to_json())
-        })?;
-        println!(
-            "[enclave] decrypted KMS secret key {}",
-            wallet_prikey_bytes.encode_bs58()
-        );
-
-        let msg_bytes = self.request.message.decode_bs64().map_err(|e| {
-            println!("{:?}", e);
-            anyhow!(super::super::error::Error::ParamsInvalid.to_json())
-        })?;
-        let sig = ed25519::sign(&wallet_prikey_bytes, &msg_bytes)?;
-        Ok(sig.encode_bs58())
+        println!("{},time={}", line!(), now_millis());
+        Ok(new_key_bonds)
     }
 }

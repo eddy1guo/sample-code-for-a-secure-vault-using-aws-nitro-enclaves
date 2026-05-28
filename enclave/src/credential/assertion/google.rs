@@ -17,7 +17,7 @@ pub fn verify_attested_signature(
     Ok(verifier.verify(signature_der)?)
 }
 
-pub fn verify_attested_base64(
+pub fn verify_assertion_base64(
     public_key_spki_der: &str,
     message: &str,
     signature_der: &str,

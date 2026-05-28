@@ -38,9 +38,11 @@ use serde_json::Value;
 use tokio::sync::RwLock;
 use zeroize::ZeroizeOnDrop;
 
+use crate::codec::bs58::DecodeBs58;
 use crate::codec::hex::DecodeHex;
 use crate::constants::{ENCODING_BINARY, ENCODING_HEX, MAX_FIELDS, P256, P384, P521};
 use crate::credential::aws::{get_attestation_document, is_debug_mode};
+use crate::ed25519;
 use crate::functions::{now_millis, now_secs};
 use crate::hpke::decrypt_value;
 use crate::kms::SecureHpkePrivateKey;
@@ -321,4 +323,20 @@ impl TryFrom<String> for Suite {
 pub trait DecryptRequire {
     fn ciphertext(&self) -> &String;
     fn region(&self) -> &String;
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct KeyBond {
+    pub ciphertext: String,
+    pub confirmed_assertion: String,
+}
+
+//验证密码签名
+pub fn verify_pwd_sig(data: &str, pwd_pubkey: &str, pwd_sig: &str) -> Result<()> {
+    let pwd_sig_bytes = pwd_sig.decode_bs58()?;
+    let public_key_bytes = pwd_pubkey.decode_bs58()?;
+    if !ed25519::verify(&data, &public_key_bytes, &pwd_sig_bytes)? {
+        Err(anyhow!(crate::error::Error::PwdSigVerifyFailed))?;
+    }
+    Ok(())
 }

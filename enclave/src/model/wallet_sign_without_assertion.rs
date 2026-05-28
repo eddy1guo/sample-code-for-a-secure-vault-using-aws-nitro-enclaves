@@ -16,20 +16,11 @@ pub struct Request {
     pub key_bond_ciphertext: String,
     pub key_bond_confirmed_assertion: String,
     pub pwd_sig: String,
+    pub sign_assertion: String,
     pub message: String,
     pub issued_at: i64,
     pub nonce: String,
     pub region: String,
-}
-
-impl DecryptRequire for Request {
-    fn ciphertext(&self) -> &String {
-        &self.key_bond_ciphertext
-    }
-
-    fn region(&self) -> &String {
-        &self.region
-    }
 }
 
 impl EnclaveRequest<Request> {
@@ -42,7 +33,7 @@ impl EnclaveRequest<Request> {
             nonce: String,
         }
         let payload = Payload {
-            r#type: Usage::WalletSignWithoutAssertion,
+            r#type: Usage::WalletSign,
             message: self.request.message.clone(),
             issued_at: self.request.issued_at,
             nonce: self.request.nonce.clone(),
@@ -54,6 +45,11 @@ impl EnclaveRequest<Request> {
     pub fn validate(&self) -> Result<()> {
         if self.request.key_bond_ciphertext.is_empty() {
             println!("vault_id cannot be empty");
+            Err(anyhow!(super::super::error::Error::ParamsInvalid.to_json()))?;
+        }
+
+        if self.request.sign_assertion.is_empty() {
+            println!("in product mode,signature can't be none");
             Err(anyhow!(super::super::error::Error::ParamsInvalid.to_json()))?;
         }
 
@@ -99,11 +95,31 @@ impl EnclaveRequest<Request> {
             &self.request.region,
         )?;
 
-        if is_debug_mode()? {
-            println!("skip verification for debug mode");
-        } else {
-            //todo: 针对无硬件assertion的业务，需要增加强制帐号锁定的机制
-        }
+        //验证密码签名
+        super::verify_pwd_sig(
+            &self.sign_payload(),
+            &wallet_bond.pwd_pubkey,
+            &self.request.pwd_sig,
+        )?;
+
+        //对key_bond_confirmed_assertion的校验
+        let _counter = verify_assertion(
+            wallet_bond.client_platform.clone(),
+            &wallet_bond.app_id,
+            &self.request.key_bond_confirmed_assertion,
+            &wallet_bond.tee_device_pubkey,
+            &self.request.key_bond_ciphertext,
+        )?;
+
+        // 和wallet_sign最大的不同就是没有assertion校验，
+        //另外此处也会增加帐号锁定机制，
+        // verify_assertion(
+        //     wallet_bond.client_platform,
+        //     &wallet_bond.app_id,
+        //     &self.request.sign_assertion,
+        //     &wallet_bond.tee_device_pubkey,
+        //     &self.sign_payload(),
+        // )?;
 
         let wallet_prikey_bytes = wallet_bond.wallet_prikey.decode_bs58().map_err(|e| {
             println!("{:?}", e);

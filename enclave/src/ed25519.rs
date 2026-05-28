@@ -1,11 +1,19 @@
 use std::str::FromStr;
 
-use anyhow::Result;
+use anyhow::{Result, bail};
 use ed25519_dalek::{Signer as DalekSigner, Verifier};
 use rand::rngs::OsRng;
 
 use crate::codec::bs58::{DecodeBs58, EncodeBs58};
 use crate::codec::hex::{DecodeHex, EncodeHex};
+
+pub fn new_key_pair_by_seed(seed: &str) -> (Vec<u8>, Vec<u8>) {
+    let key_pair = ed25519_dalek::Keypair::from_bytes(seed.as_bytes()).expect("seed must valid");
+    let mut prikey = key_pair.secret.as_bytes().to_vec();
+    let pubkey = key_pair.public.as_bytes().to_vec();
+    prikey.extend(&pubkey);
+    (prikey, pubkey)
+}
 
 pub fn new_key_pair() -> (Vec<u8>, Vec<u8>) {
     let mut csprng = OsRng {};
@@ -29,6 +37,21 @@ pub fn verify(data: &str, public_key_bytes: &[u8], sig: &[u8]) -> Result<bool> {
         Ok(true)
     } else {
         Ok(false)
+    }
+}
+
+pub trait ExtractPubkey {
+    fn extract_pubkey(&self) -> Result<String>;
+}
+
+impl ExtractPubkey for String {
+    fn extract_pubkey(&self) -> Result<String> {
+        let data = self.decode_bs58()?;
+        if data.len() != 64 {
+            bail!("it's len not equal 64");
+        }
+        let pubkey = data[32..64].iter().encode_bs58();
+        Ok(pubkey)
     }
 }
 

@@ -4,27 +4,24 @@ use serde_json::json;
 
 use crate::codec::bs58::{DecodeBs58, EncodeBs58};
 use crate::codec::bs64::DecodeBs64;
+use crate::codec::hex::EncodeHex;
+use crate::codec::json::JsonSerialize;
 use crate::credential::assertion::verify_assertion;
 use crate::credential::aws::is_debug_mode;
 use crate::credential::common::Usage;
-use crate::ed25519;
-use crate::kms::get_wallet_key_bond;
-use crate::model::{DecryptRequire, EnclaveRequest, validate_nonce_issued_at};
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct KeyBond {
-    pub ciphertext: String,
-    pub confirmed_assertion: String,
-}
-
+use crate::ed25519::{self, ExtractPubkey};
+use crate::functions::now_millis;
+use crate::kms::{call_kms_encrypt, get_wallet_key_bond};
+use crate::model::{DecryptRequire, EnclaveRequest, KeyBond, validate_nonce_issued_at};
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Request {
     pub key_bonds: Vec<KeyBond>,
-    pub pwd_sig: String,
-    pub recovery_assertion: String,
-    pub message: String,
+    pub new_pwd_pubkey: String,
+    pub new_pwd_sig: String,
+    pub assertion: String,
     pub issued_at: i64,
     pub nonce: String,
+    pub key_id: String,
     pub region: String,
 }
 
@@ -33,13 +30,11 @@ impl EnclaveRequest<Request> {
         #[derive(Serialize)]
         struct Payload {
             r#type: Usage,
-            message: String,
             issued_at: i64,
             nonce: String,
         }
         let payload = Payload {
-            r#type: Usage::WalletRecovery,
-            message: self.request.message.clone(),
+            r#type: Usage::ModifyPwd,
             issued_at: self.request.issued_at,
             nonce: self.request.nonce.clone(),
         };
@@ -53,13 +48,8 @@ impl EnclaveRequest<Request> {
             Err(anyhow!(super::super::error::Error::ParamsInvalid.to_json()))?;
         }
 
-        if self.request.recovery_assertion.is_empty() {
+        if self.request.assertion.is_empty() {
             println!("in product mode,signature can't be none");
-            Err(anyhow!(super::super::error::Error::ParamsInvalid.to_json()))?;
-        }
-
-        if self.request.message.is_empty() {
-            println!("region cannot be empty");
             Err(anyhow!(super::super::error::Error::ParamsInvalid.to_json()))?;
         }
 
@@ -86,46 +76,69 @@ impl EnclaveRequest<Request> {
         Ok(())
     }
 
-    pub fn sign(&self) -> Result<String> {
+    pub fn execute(&self) -> Result<Vec<(String, String)>> {
         self.validate()?;
 
         tokio::runtime::Runtime::new()?.block_on(validate_nonce_issued_at(
             &self.request.nonce,
             self.request.issued_at,
         ))?;
-        for key in self.request.key_bonds.iter() {
-            let wallet_bond =
-                get_wallet_key_bond(&&self.credential, &key.ciphertext, &self.request.region)?;
+
+        let wallet_bond = get_wallet_key_bond(
+            &self.credential,
+            &self.request.key_bonds[0].ciphertext,
+            &self.request.region,
+        )?;
+
+        // 当前recovery和modify_pwd的区别就是不再校验硬件证明
+        //todo: 后续会加上 帐号密码试错的锁定的机制
+        // verify_assertion(
+        //     wallet_bond.client_platform,
+        //     &wallet_bond.app_id,
+        //     &self.request.assertion,
+        //     &wallet_bond.tee_device_pubkey,
+        //     &self.sign_payload(),
+        // )?;
+
+        //验证密码签名
+        super::verify_pwd_sig(
+            &self.sign_payload(),
+            &self.request.new_pwd_pubkey,
+            &self.request.new_pwd_sig,
+        )?;
+
+        //校验每个key的客户端确认签名并且解密后换绑重新加密
+        let mut new_key_bonds = vec![];
+        println!("{},time={}", line!(), now_millis());
+        for bond in self.request.key_bonds.iter() {
+            println!("{},time={}", line!(), now_millis());
+            let mut wallet_bond =
+                get_wallet_key_bond(&self.credential, &bond.ciphertext, &self.request.region)?;
+            println!("{},time={}", line!(), now_millis());
+
+            verify_assertion(
+                wallet_bond.client_platform.clone(),
+                &wallet_bond.app_id,
+                &bond.confirmed_assertion,
+                &wallet_bond.tee_device_pubkey,
+                &bond.ciphertext,
+            )?;
+            wallet_bond.pwd_pubkey = self.request.new_pwd_pubkey.clone();
+            let wallet_pubkey = wallet_bond.wallet_prikey.extract_pubkey()?;
+            let plaint_text = wallet_bond.serialize_json()?;
+            println!("{},time={}", line!(), now_millis());
+            let key_bond_ciphertext = call_kms_encrypt(
+                &self.credential,
+                &plaint_text,
+                &self.request.region,
+                &self.request.key_id,
+            )
+            .map_err(|err| anyhow!("failed to call KMS:call_kms_encrypt: {err:?}"))?
+            .encode_hex();
+            println!("{},time={}", line!(), now_millis());
+            new_key_bonds.push((key_bond_ciphertext, wallet_pubkey))
         }
-        //todo
-        // if is_debug_mode()? {
-        //     println!("skip verification for debug mode");
-        // } else {
-        //     verify_assertion(
-        //         wallet_bond.client_platform,
-        //         &wallet_bond.app_id,
-        //         &self.request.sign_assertion,
-        //         &wallet_bond.tee_device_pubkey,
-        //         wallet_bond.counter,
-        //         &self.sign_payload(),
-        //     )?;
-        // }
-
-        // let wallet_prikey_bytes = wallet_bond.wallet_prikey.decode_bs58().map_err(|e| {
-        //     println!("{:?}", e);
-        //     anyhow!(super::super::error::Error::ParamsInvalid.to_json())
-        // })?;
-        // println!(
-        //     "[enclave] decrypted KMS secret key {}",
-        //     wallet_prikey_bytes.encode_bs58()
-        // );
-
-        // let msg_bytes = self.request.message.decode_bs64().map_err(|e| {
-        //     println!("{:?}", e);
-        //     anyhow!(super::super::error::Error::ParamsInvalid.to_json())
-        // })?;
-        // let sig = ed25519::sign(&wallet_prikey_bytes, &msg_bytes)?;
-        //Ok(sig.encode_bs58())
-        Ok("".to_owned())
+        println!("{},time={}", line!(), now_millis());
+        Ok(new_key_bonds)
     }
 }

@@ -18,9 +18,10 @@ pub enum Error {
     ParamsInvalid = 1001,
     RepeatedNonce = 1002,
     SigExpired = 1003,
-    SigVerifyFailed = 1004,
+    AttestationVerifyFailed = 1004,
     WalletIsLocked = 1005,
     AssertionVerifyFailed = 1006,
+    PwdSigVerifyFailed = 1007,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
