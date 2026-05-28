@@ -53,9 +53,13 @@ pub enum Platform {
 #[derive(Deserialize, Serialize, Debug, Display, EnumString, PartialEq, Eq, Clone)]
 pub enum Usage {
     TeeClientRegister,
+    ConfirmTeeClientRegister,
     CreatedWalletKey,
+    ConfirmCreatedWalletKey,
     WalletSign,
+    WalletSignWithoutAssertion,
     WalletRecovery,
+    ModifyPwd,
 }
 
 pub fn sha256_bytes(data: &[u8]) -> Vec<u8> {

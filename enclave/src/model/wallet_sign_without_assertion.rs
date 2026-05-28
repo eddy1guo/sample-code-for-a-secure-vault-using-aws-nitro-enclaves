@@ -42,7 +42,7 @@ impl EnclaveRequest<Request> {
             nonce: String,
         }
         let payload = Payload {
-            r#type: Usage::CreatedWalletKey,
+            r#type: Usage::WalletSignWithoutAssertion,
             message: self.request.message.clone(),
             issued_at: self.request.issued_at,
             nonce: self.request.nonce.clone(),
