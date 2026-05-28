@@ -1,10 +1,12 @@
+use std::fmt::format;
 use std::str::FromStr;
 
 use anyhow::{Context, Result, bail};
 use clap::{Parser, Subcommand};
-use enclave_vault::codec::{bs64::EncodeBs64, hex::DecodeHex};
+use enclave_vault::codec::{bs58::EncodeBs58, bs64::EncodeBs64, hex::DecodeHex};
 use enclave_vault::credential::common::Usage;
 use enclave_vault::credential::{attestation, aws};
+use enclave_vault::ed25519;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -16,6 +18,16 @@ const NONCE: &str = "1111";
 const ISSUED_AT: i64 = 1777519926;
 const PLACEHOLDER_SIG: &str = "xxxxxxxxxxxx";
 const PLACEHOLDER_MESSAGE: &str = "hello-wallet-sign";
+const PASSWORD_SEED: &str = "123456";
+const NEW_PASSWORD_SEED: &str = "223456";
+const PLACEHOLDER_KEY_BOND_CONFIRMED_ASSERTION: &str = "xxxx";
+const PLACEHOLDER_MODIFIED_ASSERTION: &str = "xxxx";
+const PLACEHOLDER_RECOVER_ASSERTION: &str = "xxxx";
+const PLACEHOLDER_NEW_DEVICE_CONFIRMED_ASSERTION: &str = "xxxx";
+const PLACEHOLDER_SIGN_WITHOUT_ASSERTION_SIGN_ASSERTION: &str = "xxxx";
+const FIXED_PWD_SIGN_PAYLOAD: &str =
+    r#"{"type":"Sign","message": "xxxx","issued_at":1779876890,"nonce":"1111"}"#;
+
 const APPLE_KEY_ID: &str = "LnxoVdHGe+HnCcwS7FCWJecITXf2KlJBoHO7/Jr4DFI=";
 
 //todo:  跑一个 安卓的case
@@ -26,12 +38,86 @@ const APPLE_ATTESTATION_DOC: &str =
 const GOOGLE_NONCE: &str = "1111";
 const GOOGLE_ISSUED_AT: i64 = 1779876890;
 const GOOGLE_ATTESTATION: [&str; 5] = [
-    "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",
+    "MIICzTCCAnOgAwIBAgIBATAKBggqhkjOPQQDAjA5MQwwCgYDVQQKEwNURUUxKTAnBgNVBAMTIDQyMDk3ZTBlNDIzMWRmMTM2NThlYzBlMmIxM2M3YzhhMB4XDTcwMDEwMTAwMDAwMFoXDTQ4MDEwMTAwMDAwMFowHzEdMBsGA1UEAxMUQW5kcm9pZCBLZXlzdG9yZSBLZXkwWTATBgcqhkjOPQIBBggqhkjOPQMBBwNCAART0mObcLzkNAlaj2QGons7W4laatxAPq7PX/2gYDrgsdLIy1EoFwNcmORcSiEbK62FK9o9Qsed3OhGaZ8GC8iko4IBhDCCAYAwDgYDVR0PAQH/BAQDAgeAMIIBbAYKKwYBBAHWeQIBEQSCAVwwggFYAgIBLAoBAQICASwKAQEEQnsidHlwZSI6IlJlZ2lzdGVyVGVlRGV2aWNlIiwiaXNzdWVkX2F0IjoxNzc5ODc2ODkwLCJub25jZSI6IjExMTEifQQAMFq/hT0IAgYBnm47IBW/hUVKBEgwRjEgMB4EGGNvbS5jaGFpbmxlc3NhbmRyb2lkLmFwcAICAdgxIgQg+sYXRdwJA3hvue3mKpYrOZ9zSPC7b4mbgzJmdZEDO5wwgaWhCDEGAgECAgEDogMCAQOjBAICAQClBTEDAgEEqgMCAQG/g3gDAgECv4U+AwIBAL+FQEwwSgQgxdPHG8cNWOPgQJyp2bNMDbrB0vCaXelIpLjwkPGSaWUBAf8KAQAEIJqvC52VsnxoqY7f1TH86D49S1OAnpPL71WyXToG1QRFv4VBBQIDAiLgv4VCBQIDAxapv4VOBgIEATTaBb+FTwYCBAE02gUwCgYIKoZIzj0EAwIDSAAwRQIhALQMQE/X2IKR7zIVYwBORF6TbZ1BahxOOPClkC89vaktAiAkt2x4XWzxTWl5N3a/kvprtzhPAnRVquB0BECtJheMHw==",
     "MIIB3jCCAYWgAwIBAgIQQgl+DkIx3xNljsDisTx8ijAKBggqhkjOPQQDAjApMRMwEQYDVQQKEwpHb29nbGUgTExDMRIwEAYDVQQDEwlEcm9pZCBDQTMwHhcNMjYwNTE5MTQ0MTM4WhcNMjYwNTMxMTYyMDEyWjA5MQwwCgYDVQQKEwNURUUxKTAnBgNVBAMTIDQyMDk3ZTBlNDIzMWRmMTM2NThlYzBlMmIxM2M3YzhhMFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAElT93Zo5yQP51/8lo+p1eLqmhQ6nW609SVcunx+S1xZ4nVoeOjPE1DYIGZ5Xj3HXuartLJIcOitxUsQRP3zvI8aN/MH0wHQYDVR0OBBYEFOdCKUNucuGDl9i9j3EZsI07aNSoMB8GA1UdIwQYMBaAFBspkEi/wCKOYMVaMpZ/kPKe/g8yMA8GA1UdEwEB/wQFMAMBAf8wDgYDVR0PAQH/BAQDAgIEMBoGCisGAQQB1nkCAR4EDKIBGEADZlhpYW9taTAKBggqhkjOPQQDAgNHADBEAiBV/fRWn9WCunWTaUwUOaPoZrlkykTMoE+/uDQXjo9K/wIgCanwp9tW8hsmViA1FHPTrp7WW6rrwLDtoEUKBMsAQi8=",
     "MIIC7zCCAnagAwIBAgIUAKHyL81ydz2n1WzKYet7TRHVC50wCgYIKoZIzj0EAwMwKTETMBEGA1UEChMKR29vZ2xlIExMQzESMBAGA1UEAxMJRHJvaWQgQ0EyMB4XDTI2MDUyMTA0NTEwOVoXDTI2MDczMDA0NTEwOFowKTETMBEGA1UEChMKR29vZ2xlIExMQzESMBAGA1UEAxMJRHJvaWQgQ0EzMFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEfChezzUNm6whLBCW0wJ7p0/2mS9OJIRG04AV99i15seZ8ftRukzZOyea/b3wAxjnFUBwMYUN4osxPzn34DQuEqOCAXowggF2MA4GA1UdDwEB/wQEAwICBDAPBgNVHRMBAf8EBTADAQH/MB0GA1UdDgQWBBQbKZBIv8AijmDFWjKWf5Dynv4PMjAfBgNVHSMEGDAWgBT7lO504bVwFpWJjoYiKJ1MD+HDHTCBjQYIKwYBBQUHAQEEgYAwfjB8BggrBgEFBQcwAoZwaHR0cDovL3ByaXZhdGVjYS1jb250ZW50LTY5OTRiMDk5LTAwMDAtMmI5ZC1iNjAxLWQ0M2EyY2ZjZjUyNy5zdG9yYWdlLmdvb2dsZWFwaXMuY29tLzA1NzI2ZTU0OTgwOTBkYzFjODE2L2NhLmNydDCBggYDVR0fBHsweTB3oHWgc4ZxaHR0cDovL3ByaXZhdGVjYS1jb250ZW50LTY5OTRiMDk5LTAwMDAtMmI5ZC1iNjAxLWQ0M2EyY2ZjZjUyNy5zdG9yYWdlLmdvb2dsZWFwaXMuY29tLzA1NzI2ZTU0OTgwOTBkYzFjODE2L2NybC5jcmwwCgYIKoZIzj0EAwMDZwAwZAIwIPc/mYW7ksW0EIr4tlCdsQbTFdYDAnM4nvPcRTxdHqZyFNdpWISuOIhnjSHc6eJxAjA22PY/1Ar2BJsGTkTmVbBLV1xoeQyTjN8YYR2q6Z1BYQee7i8MJvQr9YhNdIMCvm8=",
     "MIICZDCCAeugAwIBAgIRAPLC/gLfzdARgeSj5rNpoowwCgYIKoZIzj0EAwMwUjEcMBoGA1UEAwwTS2V5IEF0dGVzdGF0aW9uIENBMTEQMA4GA1UECwwHQW5kcm9pZDETMBEGA1UECgwKR29vZ2xlIExMQzELMAkGA1UEBhMCVVMwHhcNMjYwMjA5MjAwMTExWhcNMjkwMjA4MjAwMTExWjApMRMwEQYDVQQKEwpHb29nbGUgTExDMRIwEAYDVQQDEwlEcm9pZCBDQTIwdjAQBgcqhkjOPQIBBgUrgQQAIgNiAATkwn4jOZw/zpxhsBn427C8Xz684+3Ajq5zsIzXwYlQPGieyFBuNxkUUFSa4YzZObqTOrgI9iFcfTBqOuOlyEtIuipjVowV9UCddBKO5ndqPTEk8Dd2RWn4yMtUTnyMMpGjga0wgaowHwYDVR0jBBgwFoAUUjK7LPtGQ5vc1oGpDmVm4DRB6kAwDwYDVR0TAQH/BAUwAwEB/zAdBgNVHQ4EFgQU+5TudOG1cBaViY6GIiidTA/hwx0wDgYDVR0PAQH/BAQDAgEGMEcGA1UdHwRAMD4wPKA6oDiGNmh0dHBzOi8vYW5kcm9pZC5nb29nbGVhcGlzLmNvbS9hdHRlc3RhdGlvbi9rZXlfY2ExLmNybDAKBggqhkjOPQQDAwNnADBkAjArwb7NmSVBlasMdMRjY0FFEum0b+SUZTMmvBT5AGYzk8xGCi2Mj2NZdchxZfxHUJgCMDseaiAzoixNISk40rfoR4vMvs7n9r4fgEgmb+9KQbpDgdq0+90mzcAL4vKr4hWSxA==",
     "MIICIjCCAaigAwIBAgIRAISp0Cl7DrWK5/8OgN52BgUwCgYIKoZIzj0EAwMwUjEcMBoGA1UEAwwTS2V5IEF0dGVzdGF0aW9uIENBMTEQMA4GA1UECwwHQW5kcm9pZDETMBEGA1UECgwKR29vZ2xlIExMQzELMAkGA1UEBhMCVVMwHhcNMjUwNzE3MjIzMjE4WhcNMzUwNzE1MjIzMjE4WjBSMRwwGgYDVQQDDBNLZXkgQXR0ZXN0YXRpb24gQ0ExMRAwDgYDVQQLDAdBbmRyb2lkMRMwEQYDVQQKDApHb29nbGUgTExDMQswCQYDVQQGEwJVUzB2MBAGByqGSM49AgEGBSuBBAAiA2IABCPaI3FO3z5bBQo8cuiEas4HjqCtG/mLFfRT0MsIssPBEEU5Cfbt6sH5yOAxqEi5QagpU1yX4HwnGb7OtBYpDTB57uH5Eczm34A5FNijV3s0/f0UPl7zbJcTx6xwqMIRq6NCMEAwDwYDVR0TAQH/BAUwAwEB/zAOBgNVHQ8BAf8EBAMCAQYwHQYDVR0OBBYEFFIyuyz7RkOb3NaBqQ5lZuA0QepAMAoGCCqGSM49BAMDA2gAMGUCMETfjPO/HwqReR2CS7p0ZWoD/LHs6hDi422opifHEUaYLxwGlT9SLdjkVpz0UUOR5wIxAIoGyxGKRHVTpqpGRFiJtQEOOTp/+s1GcxeYuR2zh/80lQyu9vAFCj6E4AXc+osmRg==",
 ];
+const CONFIRM_DEVICE_ASSERTION: &str = "eyJ0eXBlIjoiQ29uZmlybVRlZURldmljZSIsIm1lc3NhZ2UiOiIwMTAyMDIwMDc4Yjc0NWM2NmZmNDc3OTYyYTBjNzkzNmRiNDc2NjRlNzIzNjZhZWEyMmZmYmU1Yzc5MWE4YjhkZTFkMjczZTlkNzAxYmVjMTg5MDI4ODZiZGZiNDIwYzZlNTdlZGRmYjM2OTUwMDAwMDE0NDMwODIwMTQwMDYwOTJhODY0ODg2ZjcwZDAxMDcwNmEwODIwMTMxMzA4MjAxMmQwMjAxMDAzMDgyMDEyNjA2MDkyYTg2NDg4NmY3MGQwMTA3MDEzMDFlMDYwOTYwODY0ODAxNjUwMzA0MDEyZTMwMTEwNDBjMGZkZmYxZDk2ZTk1ZGMyODNiODE0ZDQ4MDIwMTEwODA4MWY4YzMxOWQ5NTYzNzI4OTAxOWIxYWFlMjliYzg0ODNkZTA3ZjRjMGViYTA0MTEyNjBkZGUxMDhkMjFlMGIxM2I1M2NhNzRjZDFkNGI2ZDU4YTE4OTE0NTJmM2NmMWI3Mzk3MDMzNDQwMmFhN2M5Yzg5NTllYzYwY2I1ZTBlMmY5Y2RmMTlhNDkzMjBmY2Y2MDdjNWFlZTEwZmI3YmFhYmIxZjEzYzg2Yzc4OWRjYzEzYmRjMDBhODhiZDA0OTQ1MmM0MjI3MmRmMmEzYjk0NjVlYTUwM2MyNTRjNWQxZGNjNzk3ZThhMGY5MDMzZjAwOTlhNTQ5ZjY0MTY5NDc4Njc3MTIyMDBjMzAxMTRkOTMyYjlhZWYyOGYxYTA1ZjE4NjcyMjVkNDczM2EzZGVhN2Q4ZDg3MTNlNmVmYTM2YTcwMWM5NDkwZDI2MzY2Yjk2MzIwNTdkNDlmNzljNTY5OTQ1OWZkNzFiNmFlNDNkNjc0YWE1NzBhOWU5ZjI1ZmQ1OTJlOTYyM2ZjMjA0NmE3YWFjMzAyOTBhYjI4NjdkYjk0YzYzOTE1ZTcwNzA1OTJlMWM0NjRjNTA2YjFiODllMzAwN2ZmYTJhMTMxM2YzY2M2ZmQ2OWJiNDBiOTQzZjdjMGVlY2JiMTRjZmIyNjlmZThkYiJ9";
+
+// {"type":"ConfirmTeeDevice","message": "xx_tee_device_cipher_text_xx"}
+const CONFIRM_TEE_CLIENT_REGISTER_ASSERTION: &str = "LnxoVdHGe+HnCcwS7FCWJecITXf2KlJBoHO7/Jr4DFI=";
+
+// {"type":"Sign","message": "xxxx","issued_at":1779876890,"nonce":"1111"}
+const SIGN_ASSERTION: &str = "LnxoVdHGe+HnCcwS7FCWJecITXf2KlJBoHO7/Jr4DFI=";
+
+// {"type":"ConfirmWalletKey","message": "xx_wallet_key_cipher_text_xx"}
+const CONFIRM_KEY_BOND_ASSERTION: &str = "LnxoVdHGe+HnCcwS7FCWJecITXf2KlJBoHO7/Jr4DFI=";
+
+//device_confirmed_assertion: PLACEHOLDER_SIG.to_string(),
+
+//        create_key_assertion: PLACEHOLDER_SIG.to_string(),
+
+//r#"{"type":"Sign","message": "xxxx","issued_at":1779876890,"nonce":"1111"}"#;
+
+// todo: 每次新建的key都需要新的签名太麻烦，后续前两个流程正常走，后续的业务如果需要可以使用固定的assertion
+pub fn register_tee_device_payload() -> String {
+    format!(
+        "{{\"type\":\"RegisterTeeDevice\",\"issued_at\":{},\"nonce\":\"{}\"}}",
+        GOOGLE_ISSUED_AT, GOOGLE_NONCE
+    )
+}
+
+pub fn confirm_tee_device_payload(device_ciphertext: &str) -> String {
+    format!(
+        "{{\"type\":\"ConfirmTeeDevice\",\"message\":\"{}\"}}",
+        device_ciphertext
+    )
+}
+
+pub fn create_wallet_key_payload() -> String {
+    format!(
+        "{{\"type\":\"CreateWalletKey\",\"issued_at\":{},\"nonce\":\"{}\"}}",
+        GOOGLE_ISSUED_AT, GOOGLE_NONCE
+    )
+}
+
+pub fn confirm_wallet_key_payload(key_ciphertext: &str) -> String {
+    format!(
+        "{{\"type\":\"ConfirmWalletKey\",\"message\":\"{}\"}}",
+        key_ciphertext
+    )
+}
+
+pub fn sign_payload(message: &str) -> String {
+    format!(
+        "{{\"type\":\"Sign\",\"message\":\"{}\",\"issued_at\":{},\"nonce\":\"{}\"}}",
+        message, GOOGLE_ISSUED_AT, GOOGLE_NONCE
+    )
+}
+
+pub fn sign_without_assertion_payload(message: &str) -> String {
+    format!(
+        "{{\"type\":\"SignWithoutAssertion\",\"message\":\"{}\",\"issued_at\":{},\"nonce\":\"{}\"}}",
+        message, GOOGLE_ISSUED_AT, GOOGLE_NONCE
+    )
+}
+
+pub fn recover_wallet_payload() -> String {
+    format!(
+        "{{\"type\":\"RecoverWallet\",,\"issued_at\":{},\"nonce\":\"{}\"}}",
+        GOOGLE_ISSUED_AT, GOOGLE_NONCE
+    )
+}
+
+pub fn modify_password_payload() -> String {
+    format!(
+        "{{\"type\":\"ModifyPassword\",\"issued_at\":{},\"nonce\":\"{}\"}}",
+        GOOGLE_ISSUED_AT, GOOGLE_NONCE
+    )
+}
+
 #[derive(Parser)]
 #[command(name = "parent-cli")]
 #[command(about = "CLI for basic parent HTTP interactions")]
@@ -61,6 +147,8 @@ struct TeeClientRegisterRequest {
 struct CreateWalletKeyRequest {
     device_ciphertext: String,
     device_confirmed_assertion: String,
+    bind_device_ciphertext: String,
+    bind_device_confirmed_assertion: String,
     pwd_pubkey: String,
     pwd_sig: String,
     create_key_assertion: String,
@@ -72,6 +160,49 @@ struct CreateWalletKeyRequest {
 
 #[derive(Debug, Serialize)]
 struct WalletSignRequest {
+    key_bond_ciphertext: String,
+    key_bond_confirmed_assertion: String,
+    pwd_sig: String,
+    sign_assertion: String,
+    message: String,
+    issued_at: i64,
+    nonce: String,
+    region: String,
+}
+
+#[derive(Debug, Serialize, Clone)]
+struct ConfirmedKeyBond {
+    ciphertext: String,
+    confirmed_assertion: String,
+}
+
+#[derive(Debug, Serialize)]
+struct ModifyPasswordRequest {
+    key_bonds: Vec<ConfirmedKeyBond>,
+    new_pwd_pubkey: String,
+    new_pwd_sig: String,
+    assertion: String,
+    issued_at: i64,
+    nonce: String,
+    key_id: String,
+    region: String,
+}
+
+#[derive(Debug, Serialize)]
+struct RecoverWalletRequest {
+    new_device_ciphertext: String,
+    new_device_confirmed_assertion: String,
+    key_bonds: Vec<ConfirmedKeyBond>,
+    pwd_sig: String,
+    assertion: String,
+    issued_at: i64,
+    nonce: String,
+    key_id: String,
+    region: String,
+}
+
+#[derive(Debug, Serialize)]
+struct SignWithoutAssertionRequest {
     key_bond_ciphertext: String,
     key_bond_confirmed_assertion: String,
     pwd_sig: String,
@@ -107,16 +238,14 @@ async fn main() -> Result<()> {
 }
 
 async fn run_basic(client: &Client, base_url: &str) -> Result<()> {
-    // let sample: RealWorldSample = serde_json::from_str(APPLE_ATTESTATION_DOC)?;
-    // let tee_request = TeeClientRegisterRequest {
-    //     attestation: vec![sample.attestation_object_base64],
-    //     platform: "Apple".to_string(),
-    //     issued_at: ISSUED_AT,
-    //     nonce: NONCE.to_string(),
-    //     key_id: KEY_ID.to_string(),
-    //     region: REGION.to_string(),
-    // };
+    let new_pwd_pubkey = password_pubkey(NEW_PASSWORD_SEED);
+    let new_pwd_sig = sign_with_password(NEW_PASSWORD_SEED, FIXED_PWD_SIGN_PAYLOAD)?;
 
+    let register_tee_device_payload = register_tee_device_payload();
+    println!(
+        "register_tee_device_payload: {}",
+        register_tee_device_payload
+    );
     let attestation = GOOGLE_ATTESTATION.iter().map(|x| x.to_string()).collect();
     let tee_request = TeeClientRegisterRequest {
         attestation,
@@ -130,9 +259,9 @@ async fn run_basic(client: &Client, base_url: &str) -> Result<()> {
     let tee_response = post_json(
         client,
         base_url,
-        "/tee_client_register",
+        "/register_tee_device",
         &tee_request,
-        "tee_client_register",
+        "register_tee_device",
     )
     .await?;
     println!("tee_response: {:?}", tee_response);
@@ -147,15 +276,30 @@ async fn run_basic(client: &Client, base_url: &str) -> Result<()> {
     let device_ciphertext: String =
         serde_json::from_value(verified_client["tee_client"].clone()).unwrap_or_default();
 
+    let confirm_tee_device_payload = confirm_tee_device_payload(&device_ciphertext);
+    println!("confirm_tee_device_payload: {}", confirm_tee_device_payload);
+
+    let create_wallet_key_payload = create_wallet_key_payload();
+    let pwd_sig = sign_with_password(PASSWORD_SEED, &create_wallet_key_payload)?;
+    let pwd_pubkey = password_pubkey(PASSWORD_SEED);
+    println!(
+        "pwd_pubkey={},\npwd_sig={},\ndata={}",
+        pwd_pubkey, pwd_sig, create_wallet_key_payload
+    );
+    enclave_vault::model::verify_pwd_sig(&create_wallet_key_payload, &pwd_pubkey, &pwd_sig)?;
+
+    println!("create_wallet_key_payload: {}", create_wallet_key_payload);
     let create_request = CreateWalletKeyRequest {
         issued_at: ISSUED_AT,
         nonce: NONCE.to_string(),
         key_id: KEY_ID.to_string(),
         region: REGION.to_string(),
-        pwd_pubkey: "xxxxxxxx".to_string(),
-        pwd_sig: "xxxxxxxx".to_string(),
-        device_ciphertext: device_ciphertext,
-        device_confirmed_assertion: PLACEHOLDER_SIG.to_string(),
+        pwd_pubkey: pwd_pubkey.clone(),
+        pwd_sig: pwd_sig.clone(),
+        device_ciphertext: device_ciphertext.clone(),
+        device_confirmed_assertion: CONFIRM_DEVICE_ASSERTION.to_string(),
+        bind_device_ciphertext: device_ciphertext.clone(),
+        bind_device_confirmed_assertion: CONFIRM_DEVICE_ASSERTION.to_string(),
         create_key_assertion: PLACEHOLDER_SIG.to_string(),
     };
 
@@ -190,19 +334,12 @@ async fn run_basic(client: &Client, base_url: &str) -> Result<()> {
         nonce: NONCE.to_string(),
         region: REGION.to_string(),
         pwd_sig: PLACEHOLDER_SIG.to_string(),
-        key_bond_ciphertext: key_bond_ciphertext,
+        key_bond_ciphertext: key_bond_ciphertext.clone(),
         key_bond_confirmed_assertion: PLACEHOLDER_SIG.to_string(),
         sign_assertion: PLACEHOLDER_SIG.to_string(),
     };
 
-    let sign_response = post_json(
-        client,
-        base_url,
-        "/wallet_sign",
-        &sign_request,
-        "wallet_sign",
-    )
-    .await?;
+    let sign_response = post_json(client, base_url, "/sign", &sign_request, "sign").await?;
     println!("sign_response: {:?}", sign_response);
 
     let sign_response_doc_str = extract_first_string_value(&sign_response)
@@ -216,7 +353,96 @@ async fn run_basic(client: &Client, base_url: &str) -> Result<()> {
     //let verified_client = verified_client["tee_client"].to_string();
     let wallet_sign_sig: String = serde_json::from_value(wallet_sign_res["sig"].clone()).unwrap();
     println!("wallet_sign_sig: {}", wallet_sign_sig);
+
+    let key_bonds = vec![ConfirmedKeyBond {
+        ciphertext: key_bond_ciphertext.clone(),
+        confirmed_assertion: PLACEHOLDER_KEY_BOND_CONFIRMED_ASSERTION.to_string(),
+    }];
+
+    let modify_password_request = ModifyPasswordRequest {
+        key_bonds: key_bonds.clone(),
+        new_pwd_pubkey: new_pwd_pubkey,
+        new_pwd_sig,
+        assertion: PLACEHOLDER_MODIFIED_ASSERTION.to_string(),
+        issued_at: ISSUED_AT,
+        nonce: NONCE.to_string(),
+        key_id: KEY_ID.to_string(),
+        region: REGION.to_string(),
+    };
+
+    let modify_password_response = post_json(
+        client,
+        base_url,
+        "/modify_password",
+        &modify_password_request,
+        "modify_password",
+    )
+    .await?;
+    println!("modify_password_response: {:?}", modify_password_response);
+
+    let recover_wallet_request = RecoverWalletRequest {
+        new_device_ciphertext: device_ciphertext,
+        new_device_confirmed_assertion: PLACEHOLDER_NEW_DEVICE_CONFIRMED_ASSERTION.to_string(),
+        key_bonds: key_bonds.clone(),
+        pwd_sig: pwd_sig.clone(),
+        assertion: PLACEHOLDER_RECOVER_ASSERTION.to_string(),
+        issued_at: ISSUED_AT,
+        nonce: NONCE.to_string(),
+        key_id: KEY_ID.to_string(),
+        region: REGION.to_string(),
+    };
+
+    let recover_wallet_response = post_json(
+        client,
+        base_url,
+        "/recover_wallet",
+        &recover_wallet_request,
+        "recover_wallet",
+    )
+    .await?;
+    println!("recover_wallet_response: {:?}", recover_wallet_response);
+
+    let sign_without_assertion_request = SignWithoutAssertionRequest {
+        key_bond_ciphertext,
+        key_bond_confirmed_assertion: PLACEHOLDER_KEY_BOND_CONFIRMED_ASSERTION.to_string(),
+        pwd_sig,
+        sign_assertion: PLACEHOLDER_SIGN_WITHOUT_ASSERTION_SIGN_ASSERTION.to_string(),
+        message: PLACEHOLDER_MESSAGE.as_bytes().encode_bs64(),
+        issued_at: ISSUED_AT,
+        nonce: NONCE.to_string(),
+        region: REGION.to_string(),
+    };
+
+    let sign_without_assertion_response = post_json(
+        client,
+        base_url,
+        "/sign_without_assertion",
+        &sign_without_assertion_request,
+        "sign_without_assertion",
+    )
+    .await?;
+    println!(
+        "sign_without_assertion_response: {:?}",
+        sign_without_assertion_response
+    );
     Ok(())
+}
+
+fn generate_pwd_signature() -> Result<(String, String)> {
+    let pubkey = password_pubkey(PASSWORD_SEED);
+    let sig = sign_with_password(PASSWORD_SEED, FIXED_PWD_SIGN_PAYLOAD)?;
+    Ok((pubkey, sig))
+}
+
+fn password_pubkey(password_seed: &str) -> String {
+    let (_, pubkey) = ed25519::new_key_pair_by_seed(password_seed);
+    pubkey.encode_bs58()
+}
+
+fn sign_with_password(password_seed: &str, payload: &str) -> Result<String> {
+    let (prikey, _) = ed25519::new_key_pair_by_seed(password_seed);
+    let sig = ed25519::sign(&prikey, payload.as_bytes())?;
+    Ok(sig.encode_bs58())
 }
 
 async fn post_json<T: Serialize>(

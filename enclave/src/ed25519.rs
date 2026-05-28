@@ -1,16 +1,25 @@
 use std::str::FromStr;
 
 use anyhow::{Result, bail};
-use ed25519_dalek::{Signer as DalekSigner, Verifier};
+use ed25519_dalek::{PublicKey, SecretKey, Signer as DalekSigner, Verifier};
+use openssl::sha::sha256;
 use rand::rngs::OsRng;
 
 use crate::codec::bs58::{DecodeBs58, EncodeBs58};
 use crate::codec::hex::{DecodeHex, EncodeHex};
 
 pub fn new_key_pair_by_seed(seed: &str) -> (Vec<u8>, Vec<u8>) {
-    let key_pair = ed25519_dalek::Keypair::from_bytes(seed.as_bytes()).expect("seed must valid");
-    let mut prikey = key_pair.secret.as_bytes().to_vec();
-    let pubkey = key_pair.public.as_bytes().to_vec();
+    assert!(
+        seed.len() == 6 && seed.chars().all(|c| c.is_ascii_digit()),
+        "seed must be a 6-digit numeric string"
+    );
+
+    let secret_seed = sha256(format!("{seed}").as_bytes());
+    let secret_key = SecretKey::from_bytes(&secret_seed).expect("sha256 output must be 32 bytes");
+    let public_key = PublicKey::from(&secret_key);
+
+    let mut prikey = secret_key.as_bytes().to_vec();
+    let pubkey = public_key.as_bytes().to_vec();
     prikey.extend(&pubkey);
     (prikey, pubkey)
 }
@@ -67,6 +76,21 @@ mod tests {
         let sig = sign(&prikey, input_hex.as_bytes())?;
         let verify_res = verify(input_hex, &pubkey, &sig)?;
         assert!(verify_res);
+        Ok(())
+    }
+
+    #[test]
+    fn test_new_key_pair_by_seed_is_deterministic() -> Result<()> {
+        let (prikey1, pubkey1) = new_key_pair_by_seed("123456");
+        let (prikey2, pubkey2) = new_key_pair_by_seed("123456");
+        let (_, pubkey3) = new_key_pair_by_seed("654321");
+
+        assert_eq!(prikey1, prikey2);
+        assert_eq!(pubkey1, pubkey2);
+        assert_ne!(pubkey1, pubkey3);
+
+        let sig = sign(&prikey1, b"hello")?;
+        assert!(verify("hello", &pubkey1, &sig)?);
         Ok(())
     }
 }

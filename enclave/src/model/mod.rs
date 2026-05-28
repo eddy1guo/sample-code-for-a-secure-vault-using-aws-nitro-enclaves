@@ -3,15 +3,15 @@
 
 mod create_wallet_key;
 mod modify_password;
-mod register_tee_device;
 mod recover_wallet;
+mod register_tee_device;
 mod sign;
 mod sign_without_assertion;
 
 pub use create_wallet_key::Request as CreateWalletKeyRequest;
 pub use modify_password::Request as ModifyPwdRequest;
-pub use register_tee_device::Request as TeeClientRegisterRequest;
 pub use recover_wallet::Request as WalletRecoveryRequest;
+pub use register_tee_device::Request as TeeClientRegisterRequest;
 pub use sign::Request as WalletSignRequest;
 pub use sign_without_assertion::Request as wallet_sign_without_assertionRequest;
 
@@ -349,11 +349,13 @@ impl ConfirmedKeyBond {
 }
 
 //验证密码签名
+//todo: 这里注意ed25519的请求头的问题，保持一致，后续统一加上
 pub fn verify_pwd_sig(data: &str, pwd_pubkey: &str, pwd_sig: &str) -> Result<()> {
+    println!("data={}", data);
     let pwd_sig_bytes = pwd_sig.decode_bs58()?;
     let public_key_bytes = pwd_pubkey.decode_bs58()?;
     if !ed25519::verify(&data, &public_key_bytes, &pwd_sig_bytes)? {
-        Err(anyhow!(crate::error::Error::PwdSigVerifyFailed))?;
+        Err(anyhow!(crate::error::Error::PwdSigVerifyFailed.to_json()))?;
     }
     Ok(())
 }
