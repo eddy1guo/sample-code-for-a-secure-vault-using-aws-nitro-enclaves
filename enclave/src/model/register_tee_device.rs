@@ -53,6 +53,7 @@ impl EnclaveRequest<Request> {
             &self.request.nonce,
             self.request.issued_at,
         ))?;
+        println!("file={},line={}", file!(), line!());
         //let attestation = self.attestation()?;
         let (app_id, pubkey) = verify_attestation(
             &self.request.platform,
@@ -66,6 +67,7 @@ impl EnclaveRequest<Request> {
             usage: Usage::RegisterTeeDevice,
         }
         .serialize_json()?;
+        println!("file={},line={}", file!(), line!());
         call_kms_encrypt(
             &self.credential,
             &tee_client,

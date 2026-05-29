@@ -62,6 +62,16 @@ mod tests {
         use super::*;
 
         #[test]
+        fn test_google_verify_assertion_base64() -> Result<()> {
+            let public_key_spki_der = "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEU9Jjm3C85DQJWo9kBqJ7O1uJWmrcQD6uz1/9oGA64LHSyMtRKBcDXJjkXEohGyuthSvaPULHndzoRmmfBgvIpA==";
+            let message = r#"{"type":"ConfirmTeeDevice","message":"0102020078b745c66ff477962a0c7936db47664e72366aea22ffbe5c791a8b8de1d273e9d701bec18902886bdfb420c6e57eddfb3695000001443082014006092a864886f70d010706a08201313082012d0201003082012606092a864886f70d010701301e060960864801650304012e3011040c0fdff1d96e95dc283b814d480201108081f8c319d95637289019b1aae29bc8483de07f4c0eba0411260dde108d21e0b13b53ca74cd1d4b6d58a1891452f3cf1b73970334402aa7c9c8959ec60cb5e0e2f9cdf19a49320fcf607c5aee10fb7baabb1f13c86c789dcc13bdc00a88bd049452c42272df2a3b9465ea503c254c5d1dcc797e8a0f9033f0099a549f6416947867712200c30114d932b9aef28f1a05f1867225d4733a3dea7d8d8713e6efa36a701c9490d26366b9632057d49f79c5699459fd71b6ae43d674aa570a9e9f25fd592e9623fc2046a7aac30290ab2867db94c63915e7070592e1c464c506b1b89e3007ffa2a1313f3cc6fd69bb40b943f7c0eecbb14cfb269fe8db"}"#;
+            let assertion = "MEQCIAR5vzfjU8+zpQ/jU2mZdgSYYO3OFw9g9VEAGIg9RbqsAiAi/r5y+OaQAVsLI5Zi6Z5m7wkZcihbr5Uz8iDSYp5jhA==";
+
+            verify_assertion_base64(public_key_spki_der, message, assertion)?;
+            Ok(())
+        }
+
+        #[test]
         fn accepts_valid_signature() -> Result<()> {
             let key = generate_p256_key()?;
             let public_key_spki_der = key.public_key_to_der()?;

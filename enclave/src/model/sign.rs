@@ -97,6 +97,7 @@ impl EnclaveRequest<Request> {
 
     pub fn sign(&self) -> Result<String> {
         self.validate()?;
+        println!("file={},line={}", file!(), line!());
 
         tokio::runtime::Runtime::new()?.block_on(validate_nonce_issued_at(
             &self.request.nonce,
@@ -108,6 +109,7 @@ impl EnclaveRequest<Request> {
             &self.request.key_bond_ciphertext,
             &self.request.region,
         )?;
+        println!("file={},line={}", file!(), line!());
 
         //验证密码签名
         super::verify_pwd_sig(
@@ -115,6 +117,8 @@ impl EnclaveRequest<Request> {
             &wallet_bond.pwd_pubkey,
             &self.request.pwd_sig,
         )?;
+
+        println!("file={},line={}", file!(), line!());
 
         //对key_bond_confirmed_assertion的校验
         let _counter = verify_assertion(
@@ -124,6 +128,7 @@ impl EnclaveRequest<Request> {
             &wallet_bond.master_device_pubkey,
             &self.confirm_payload(),
         )?;
+        println!("file={},line={}", file!(), line!());
 
         // assertion校验
         verify_assertion(

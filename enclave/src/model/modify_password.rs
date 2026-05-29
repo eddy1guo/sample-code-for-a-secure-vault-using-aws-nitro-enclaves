@@ -89,6 +89,7 @@ impl EnclaveRequest<Request> {
             &self.request.key_bonds[0].ciphertext,
             &self.request.region,
         )?;
+        println!("file={},line={}", file!(), line!());
 
         // 校验修改密码的签名
         verify_assertion(
@@ -98,6 +99,7 @@ impl EnclaveRequest<Request> {
             &wallet_bond.tee_device_pubkey,
             &self.sign_payload(),
         )?;
+        println!("file={},line={}", file!(), line!());
 
         //验证密码签名
         super::verify_pwd_sig(
@@ -105,6 +107,7 @@ impl EnclaveRequest<Request> {
             &self.request.new_pwd_pubkey,
             &self.request.new_pwd_sig,
         )?;
+        println!("file={},line={}", file!(), line!());
 
         //校验每个key的客户端确认签名并且解密后换绑重新加密
         let mut new_key_bonds = vec![];

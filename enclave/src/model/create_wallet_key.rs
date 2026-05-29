@@ -45,7 +45,7 @@ impl EnclaveRequest<Request> {
         serde_json::to_string(&payload).unwrap()
     }
 
-    pub fn confirm_payload(&self) -> String {
+    pub fn confirm_payload(&self, ciphertext: &str) -> String {
         #[derive(Serialize)]
         struct Payload {
             r#type: Usage,
@@ -53,7 +53,7 @@ impl EnclaveRequest<Request> {
         }
         let payload = Payload {
             r#type: Usage::ConfirmTeeDevice,
-            message: self.request.device_ciphertext.clone(),
+            message: ciphertext.to_owned(),
         };
 
         serde_json::to_string(&payload).unwrap()
@@ -93,29 +93,32 @@ impl EnclaveRequest<Request> {
             &self.request.pwd_pubkey,
             &self.request.pwd_sig,
         )?;
+        println!("file={},line={}", file!(), line!());
 
         //获取当前的设备证明
         let client = get_tee_client(&self, &self.request.device_ciphertext)?;
-        //先验证客户端对kms加密结果的认证
+        //先验证当前客户端的assertion
         let _counter = verify_assertion(
             client.platform.clone(),
             &client.app_id,
             &self.request.device_confirmed_assertion,
             &client.pubkey,
-            &self.confirm_payload(),
+            &self.confirm_payload(&self.request.device_ciphertext),
         )?;
+        println!("file={},line={}", file!(), line!());
 
-        //获取当前的设备证明
+        //验证被绑定客户端的assertion
         let bind_client = get_tee_client(&self, &self.request.bind_device_ciphertext)?;
         //先验证客户端对kms加密结果的认证
         let _counter = verify_assertion(
-            client.platform.clone(),
-            &client.app_id,
-            &self.request.device_confirmed_assertion,
-            &client.pubkey,
-            &self.confirm_payload(),
+            bind_client.platform.clone(),
+            &bind_client.app_id,
+            &self.request.bind_device_confirmed_assertion,
+            &bind_client.pubkey,
+            &self.confirm_payload(&self.request.bind_device_ciphertext),
         )?;
 
+        println!("file={},line={}", file!(), line!());
         //验证客户端对本次创建tee-key的签名
         let counter = verify_assertion(
             client.platform.clone(),
@@ -124,6 +127,7 @@ impl EnclaveRequest<Request> {
             &client.pubkey,
             &self.sign_payload(),
         )?;
+        println!("file={},line={}", file!(), line!());
         let key_pair = new_key_pair();
         let wallet_prikey = key_pair.0.encode_bs58();
         let wallet_pubkey = key_pair.1.encode_bs58();

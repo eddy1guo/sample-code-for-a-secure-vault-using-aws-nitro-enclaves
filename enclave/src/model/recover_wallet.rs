@@ -98,6 +98,7 @@ impl EnclaveRequest<Request> {
             &self.request.nonce,
             self.request.issued_at,
         ))?;
+        println!("file={},line={}", file!(), line!());
 
         let new_device = get_tee_client2(&self)?;
 
@@ -109,6 +110,7 @@ impl EnclaveRequest<Request> {
             &new_device.pubkey,
             &self.confirm_payload(),
         )?;
+        println!("file={},line={}", file!(), line!());
 
         //这里仅为了提取pwd_pubkey，任何一个成员的都行
         let wallet_bond = get_wallet_key_bond(

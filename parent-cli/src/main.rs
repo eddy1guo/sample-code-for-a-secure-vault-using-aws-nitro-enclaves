@@ -14,8 +14,6 @@ use serde_json::{Value, json};
 const DEFAULT_BASE_URL: &str = "https://localhost:10001";
 const REGION: &str = "ap-southeast-1";
 const KEY_ID: &str = "mrk-794e2c0173cd4848849739bf393a76b5";
-const NONCE: &str = "1111";
-const ISSUED_AT: i64 = 1777519926;
 const PLACEHOLDER_SIG: &str = "xxxxxxxxxxxx";
 const PLACEHOLDER_MESSAGE: &str = "hello-wallet-sign";
 const PASSWORD_SEED: &str = "123456";
@@ -35,8 +33,8 @@ const APPLE_ATTESTATION_DOC: &str =
     include_str!("../../enclave/src/credential/testdata/ios_real_world_attestation_object.txt");
 
 //    {"type":"TeeClientRegister","issued_at":1779876890,"nonce":"1111"}
-const GOOGLE_NONCE: &str = "1111";
-const GOOGLE_ISSUED_AT: i64 = 1779876890;
+const NONCE: &str = "1111";
+const ISSUED_AT: i64 = 1779876890;
 const GOOGLE_ATTESTATION: [&str; 5] = [
     "MIICzTCCAnOgAwIBAgIBATAKBggqhkjOPQQDAjA5MQwwCgYDVQQKEwNURUUxKTAnBgNVBAMTIDQyMDk3ZTBlNDIzMWRmMTM2NThlYzBlMmIxM2M3YzhhMB4XDTcwMDEwMTAwMDAwMFoXDTQ4MDEwMTAwMDAwMFowHzEdMBsGA1UEAxMUQW5kcm9pZCBLZXlzdG9yZSBLZXkwWTATBgcqhkjOPQIBBggqhkjOPQMBBwNCAART0mObcLzkNAlaj2QGons7W4laatxAPq7PX/2gYDrgsdLIy1EoFwNcmORcSiEbK62FK9o9Qsed3OhGaZ8GC8iko4IBhDCCAYAwDgYDVR0PAQH/BAQDAgeAMIIBbAYKKwYBBAHWeQIBEQSCAVwwggFYAgIBLAoBAQICASwKAQEEQnsidHlwZSI6IlJlZ2lzdGVyVGVlRGV2aWNlIiwiaXNzdWVkX2F0IjoxNzc5ODc2ODkwLCJub25jZSI6IjExMTEifQQAMFq/hT0IAgYBnm47IBW/hUVKBEgwRjEgMB4EGGNvbS5jaGFpbmxlc3NhbmRyb2lkLmFwcAICAdgxIgQg+sYXRdwJA3hvue3mKpYrOZ9zSPC7b4mbgzJmdZEDO5wwgaWhCDEGAgECAgEDogMCAQOjBAICAQClBTEDAgEEqgMCAQG/g3gDAgECv4U+AwIBAL+FQEwwSgQgxdPHG8cNWOPgQJyp2bNMDbrB0vCaXelIpLjwkPGSaWUBAf8KAQAEIJqvC52VsnxoqY7f1TH86D49S1OAnpPL71WyXToG1QRFv4VBBQIDAiLgv4VCBQIDAxapv4VOBgIEATTaBb+FTwYCBAE02gUwCgYIKoZIzj0EAwIDSAAwRQIhALQMQE/X2IKR7zIVYwBORF6TbZ1BahxOOPClkC89vaktAiAkt2x4XWzxTWl5N3a/kvprtzhPAnRVquB0BECtJheMHw==",
     "MIIB3jCCAYWgAwIBAgIQQgl+DkIx3xNljsDisTx8ijAKBggqhkjOPQQDAjApMRMwEQYDVQQKEwpHb29nbGUgTExDMRIwEAYDVQQDEwlEcm9pZCBDQTMwHhcNMjYwNTE5MTQ0MTM4WhcNMjYwNTMxMTYyMDEyWjA5MQwwCgYDVQQKEwNURUUxKTAnBgNVBAMTIDQyMDk3ZTBlNDIzMWRmMTM2NThlYzBlMmIxM2M3YzhhMFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAElT93Zo5yQP51/8lo+p1eLqmhQ6nW609SVcunx+S1xZ4nVoeOjPE1DYIGZ5Xj3HXuartLJIcOitxUsQRP3zvI8aN/MH0wHQYDVR0OBBYEFOdCKUNucuGDl9i9j3EZsI07aNSoMB8GA1UdIwQYMBaAFBspkEi/wCKOYMVaMpZ/kPKe/g8yMA8GA1UdEwEB/wQFMAMBAf8wDgYDVR0PAQH/BAQDAgIEMBoGCisGAQQB1nkCAR4EDKIBGEADZlhpYW9taTAKBggqhkjOPQQDAgNHADBEAiBV/fRWn9WCunWTaUwUOaPoZrlkykTMoE+/uDQXjo9K/wIgCanwp9tW8hsmViA1FHPTrp7WW6rrwLDtoEUKBMsAQi8=",
@@ -44,7 +42,9 @@ const GOOGLE_ATTESTATION: [&str; 5] = [
     "MIICZDCCAeugAwIBAgIRAPLC/gLfzdARgeSj5rNpoowwCgYIKoZIzj0EAwMwUjEcMBoGA1UEAwwTS2V5IEF0dGVzdGF0aW9uIENBMTEQMA4GA1UECwwHQW5kcm9pZDETMBEGA1UECgwKR29vZ2xlIExMQzELMAkGA1UEBhMCVVMwHhcNMjYwMjA5MjAwMTExWhcNMjkwMjA4MjAwMTExWjApMRMwEQYDVQQKEwpHb29nbGUgTExDMRIwEAYDVQQDEwlEcm9pZCBDQTIwdjAQBgcqhkjOPQIBBgUrgQQAIgNiAATkwn4jOZw/zpxhsBn427C8Xz684+3Ajq5zsIzXwYlQPGieyFBuNxkUUFSa4YzZObqTOrgI9iFcfTBqOuOlyEtIuipjVowV9UCddBKO5ndqPTEk8Dd2RWn4yMtUTnyMMpGjga0wgaowHwYDVR0jBBgwFoAUUjK7LPtGQ5vc1oGpDmVm4DRB6kAwDwYDVR0TAQH/BAUwAwEB/zAdBgNVHQ4EFgQU+5TudOG1cBaViY6GIiidTA/hwx0wDgYDVR0PAQH/BAQDAgEGMEcGA1UdHwRAMD4wPKA6oDiGNmh0dHBzOi8vYW5kcm9pZC5nb29nbGVhcGlzLmNvbS9hdHRlc3RhdGlvbi9rZXlfY2ExLmNybDAKBggqhkjOPQQDAwNnADBkAjArwb7NmSVBlasMdMRjY0FFEum0b+SUZTMmvBT5AGYzk8xGCi2Mj2NZdchxZfxHUJgCMDseaiAzoixNISk40rfoR4vMvs7n9r4fgEgmb+9KQbpDgdq0+90mzcAL4vKr4hWSxA==",
     "MIICIjCCAaigAwIBAgIRAISp0Cl7DrWK5/8OgN52BgUwCgYIKoZIzj0EAwMwUjEcMBoGA1UEAwwTS2V5IEF0dGVzdGF0aW9uIENBMTEQMA4GA1UECwwHQW5kcm9pZDETMBEGA1UECgwKR29vZ2xlIExMQzELMAkGA1UEBhMCVVMwHhcNMjUwNzE3MjIzMjE4WhcNMzUwNzE1MjIzMjE4WjBSMRwwGgYDVQQDDBNLZXkgQXR0ZXN0YXRpb24gQ0ExMRAwDgYDVQQLDAdBbmRyb2lkMRMwEQYDVQQKDApHb29nbGUgTExDMQswCQYDVQQGEwJVUzB2MBAGByqGSM49AgEGBSuBBAAiA2IABCPaI3FO3z5bBQo8cuiEas4HjqCtG/mLFfRT0MsIssPBEEU5Cfbt6sH5yOAxqEi5QagpU1yX4HwnGb7OtBYpDTB57uH5Eczm34A5FNijV3s0/f0UPl7zbJcTx6xwqMIRq6NCMEAwDwYDVR0TAQH/BAUwAwEB/zAOBgNVHQ8BAf8EBAMCAQYwHQYDVR0OBBYEFFIyuyz7RkOb3NaBqQ5lZuA0QepAMAoGCCqGSM49BAMDA2gAMGUCMETfjPO/HwqReR2CS7p0ZWoD/LHs6hDi422opifHEUaYLxwGlT9SLdjkVpz0UUOR5wIxAIoGyxGKRHVTpqpGRFiJtQEOOTp/+s1GcxeYuR2zh/80lQyu9vAFCj6E4AXc+osmRg==",
 ];
-const CONFIRM_DEVICE_ASSERTION: &str = "eyJ0eXBlIjoiQ29uZmlybVRlZURldmljZSIsIm1lc3NhZ2UiOiIwMTAyMDIwMDc4Yjc0NWM2NmZmNDc3OTYyYTBjNzkzNmRiNDc2NjRlNzIzNjZhZWEyMmZmYmU1Yzc5MWE4YjhkZTFkMjczZTlkNzAxYmVjMTg5MDI4ODZiZGZiNDIwYzZlNTdlZGRmYjM2OTUwMDAwMDE0NDMwODIwMTQwMDYwOTJhODY0ODg2ZjcwZDAxMDcwNmEwODIwMTMxMzA4MjAxMmQwMjAxMDAzMDgyMDEyNjA2MDkyYTg2NDg4NmY3MGQwMTA3MDEzMDFlMDYwOTYwODY0ODAxNjUwMzA0MDEyZTMwMTEwNDBjMGZkZmYxZDk2ZTk1ZGMyODNiODE0ZDQ4MDIwMTEwODA4MWY4YzMxOWQ5NTYzNzI4OTAxOWIxYWFlMjliYzg0ODNkZTA3ZjRjMGViYTA0MTEyNjBkZGUxMDhkMjFlMGIxM2I1M2NhNzRjZDFkNGI2ZDU4YTE4OTE0NTJmM2NmMWI3Mzk3MDMzNDQwMmFhN2M5Yzg5NTllYzYwY2I1ZTBlMmY5Y2RmMTlhNDkzMjBmY2Y2MDdjNWFlZTEwZmI3YmFhYmIxZjEzYzg2Yzc4OWRjYzEzYmRjMDBhODhiZDA0OTQ1MmM0MjI3MmRmMmEzYjk0NjVlYTUwM2MyNTRjNWQxZGNjNzk3ZThhMGY5MDMzZjAwOTlhNTQ5ZjY0MTY5NDc4Njc3MTIyMDBjMzAxMTRkOTMyYjlhZWYyOGYxYTA1ZjE4NjcyMjVkNDczM2EzZGVhN2Q4ZDg3MTNlNmVmYTM2YTcwMWM5NDkwZDI2MzY2Yjk2MzIwNTdkNDlmNzljNTY5OTQ1OWZkNzFiNmFlNDNkNjc0YWE1NzBhOWU5ZjI1ZmQ1OTJlOTYyM2ZjMjA0NmE3YWFjMzAyOTBhYjI4NjdkYjk0YzYzOTE1ZTcwNzA1OTJlMWM0NjRjNTA2YjFiODllMzAwN2ZmYTJhMTMxM2YzY2M2ZmQ2OWJiNDBiOTQzZjdjMGVlY2JiMTRjZmIyNjlmZThkYiJ9";
+const FIX_DEVICE_CIPHERTEXT: &str = "0102020078b745c66ff477962a0c7936db47664e72366aea22ffbe5c791a8b8de1d273e9d701bec18902886bdfb420c6e57eddfb3695000001443082014006092a864886f70d010706a08201313082012d0201003082012606092a864886f70d010701301e060960864801650304012e3011040c0fdff1d96e95dc283b814d480201108081f8c319d95637289019b1aae29bc8483de07f4c0eba0411260dde108d21e0b13b53ca74cd1d4b6d58a1891452f3cf1b73970334402aa7c9c8959ec60cb5e0e2f9cdf19a49320fcf607c5aee10fb7baabb1f13c86c789dcc13bdc00a88bd049452c42272df2a3b9465ea503c254c5d1dcc797e8a0f9033f0099a549f6416947867712200c30114d932b9aef28f1a05f1867225d4733a3dea7d8d8713e6efa36a701c9490d26366b9632057d49f79c5699459fd71b6ae43d674aa570a9e9f25fd592e9623fc2046a7aac30290ab2867db94c63915e7070592e1c464c506b1b89e3007ffa2a1313f3cc6fd69bb40b943f7c0eecbb14cfb269fe8db";
+const CONFIRM_DEVICE_ASSERTION: &str = "MEQCIAR5vzfjU8+zpQ/jU2mZdgSYYO3OFw9g9VEAGIg9RbqsAiAi/r5y+OaQAVsLI5Zi6Z5m7wkZcihbr5Uz8iDSYp5jhA==";
+const CREATE_KEY_ASSERTION: &str = "MEUCIQDkUENQfUm7y4fk+M1Xml2LpCtox3m09reCFClLidiOAwIgOKwT/RR5uwYvHxd9uWtfCAVIKbact5vD7YcA6tqZiXI=";
 
 // {"type":"ConfirmTeeDevice","message": "xx_tee_device_cipher_text_xx"}
 const CONFIRM_TEE_CLIENT_REGISTER_ASSERTION: &str = "LnxoVdHGe+HnCcwS7FCWJecITXf2KlJBoHO7/Jr4DFI=";
@@ -65,7 +65,7 @@ const CONFIRM_KEY_BOND_ASSERTION: &str = "LnxoVdHGe+HnCcwS7FCWJecITXf2KlJBoHO7/J
 pub fn register_tee_device_payload() -> String {
     format!(
         "{{\"type\":\"RegisterTeeDevice\",\"issued_at\":{},\"nonce\":\"{}\"}}",
-        GOOGLE_ISSUED_AT, GOOGLE_NONCE
+        ISSUED_AT, NONCE
     )
 }
 
@@ -79,7 +79,7 @@ pub fn confirm_tee_device_payload(device_ciphertext: &str) -> String {
 pub fn create_wallet_key_payload() -> String {
     format!(
         "{{\"type\":\"CreateWalletKey\",\"issued_at\":{},\"nonce\":\"{}\"}}",
-        GOOGLE_ISSUED_AT, GOOGLE_NONCE
+        ISSUED_AT, NONCE
     )
 }
 
@@ -93,28 +93,28 @@ pub fn confirm_wallet_key_payload(key_ciphertext: &str) -> String {
 pub fn sign_payload(message: &str) -> String {
     format!(
         "{{\"type\":\"Sign\",\"message\":\"{}\",\"issued_at\":{},\"nonce\":\"{}\"}}",
-        message, GOOGLE_ISSUED_AT, GOOGLE_NONCE
+        message, ISSUED_AT, NONCE
     )
 }
 
 pub fn sign_without_assertion_payload(message: &str) -> String {
     format!(
         "{{\"type\":\"SignWithoutAssertion\",\"message\":\"{}\",\"issued_at\":{},\"nonce\":\"{}\"}}",
-        message, GOOGLE_ISSUED_AT, GOOGLE_NONCE
+        message, ISSUED_AT, NONCE
     )
 }
 
 pub fn recover_wallet_payload() -> String {
     format!(
         "{{\"type\":\"RecoverWallet\",,\"issued_at\":{},\"nonce\":\"{}\"}}",
-        GOOGLE_ISSUED_AT, GOOGLE_NONCE
+        ISSUED_AT, NONCE
     )
 }
 
 pub fn modify_password_payload() -> String {
     format!(
         "{{\"type\":\"ModifyPassword\",\"issued_at\":{},\"nonce\":\"{}\"}}",
-        GOOGLE_ISSUED_AT, GOOGLE_NONCE
+        ISSUED_AT, NONCE
     )
 }
 
@@ -250,8 +250,8 @@ async fn run_basic(client: &Client, base_url: &str) -> Result<()> {
     let tee_request = TeeClientRegisterRequest {
         attestation,
         platform: "Google".to_string(),
-        issued_at: GOOGLE_ISSUED_AT,
-        nonce: GOOGLE_NONCE.to_string(),
+        issued_at: ISSUED_AT,
+        nonce: NONCE.to_string(),
         key_id: KEY_ID.to_string(),
         region: REGION.to_string(),
     };
@@ -275,7 +275,9 @@ async fn run_basic(client: &Client, base_url: &str) -> Result<()> {
     //let verified_client = verified_client["tee_client"].to_string();
     let device_ciphertext: String =
         serde_json::from_value(verified_client["tee_client"].clone()).unwrap_or_default();
-
+    println!("{}", device_ciphertext);
+    //由于每次device_ciphertext 都会变更，此处使用一个固定结果
+    let device_ciphertext = FIX_DEVICE_CIPHERTEXT.to_owned();
     let confirm_tee_device_payload = confirm_tee_device_payload(&device_ciphertext);
     println!("confirm_tee_device_payload: {}", confirm_tee_device_payload);
 
@@ -300,7 +302,7 @@ async fn run_basic(client: &Client, base_url: &str) -> Result<()> {
         device_confirmed_assertion: CONFIRM_DEVICE_ASSERTION.to_string(),
         bind_device_ciphertext: device_ciphertext.clone(),
         bind_device_confirmed_assertion: CONFIRM_DEVICE_ASSERTION.to_string(),
-        create_key_assertion: PLACEHOLDER_SIG.to_string(),
+        create_key_assertion: CREATE_KEY_ASSERTION.to_string(),
     };
 
     let create_response = post_json(
