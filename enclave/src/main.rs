@@ -14,7 +14,6 @@ use enclave_vault::model::{ModifyPasswordRequest, RecoverWalletRequest, SignRequ
 use enclave_vault::models::{CreateWalletKeyRequest, EnclaveAction, TeeClientRegisterRequest};
 use enclave_vault::{
     constants::{ENCLAVE_PORT, MAX_CONCURRENT_CONNECTIONS},
-    expressions::execute_expressions,
     models::{EnclaveRequest, EnclaveResponse},
     protocol::{recv_message, send_message},
 };
@@ -65,91 +64,53 @@ fn sanitize_error_message(err: &Error) -> String {
     }
 }
 
-fn handle_sign_without_assertion(
-    request: EnclaveRequest<enclave_vault::model::SignWithoutAssertionRequest>,
-) -> Result<Value> {
-    use serde_json::{Map, Value};
-    println!("{}:{}", file!(), line!());
-    let sig = request.execute()?;
-    println!("{}:{}", file!(), line!());
-    let mut fields: HashMap<String, Value> = Default::default();
-    fields.insert("data".to_string(), serde_json::to_value(key_bonds)?);
-    let value = Value::Object(fields.into_iter().collect::<Map<String, Value>>());
-    Ok(value)
+#[inline]
+fn handle_request<T, F>(label: &str, f: F) -> Result<Value>
+where
+    T: serde::Serialize,
+    F: FnOnce() -> Result<T>,
+{
+    println!("{label}");
+    let data = f()?;
+    Ok(serde_json::json!({
+        "data": serde_json::to_value(data)?
+    }))
 }
 
-fn handle_sign(request: EnclaveRequest<SignRequest>) -> Result<Value> {
-    use serde_json::{Map, Value};
-    println!("{}:{}", file!(), line!());
-    let sig = request.execute()?;
-    println!("{}:{}", file!(), line!());
-    let mut fields: HashMap<String, Value> = Default::default();
-    fields.insert("data".to_string(), serde_json::to_value(key_bonds)?);
-    let value = Value::Object(fields.into_iter().collect::<Map<String, Value>>());
-    Ok(value)
+#[inline]
+fn dispatch_action(action: EnclaveAction) -> Result<Value> {
+    match action {
+        EnclaveAction::Sign { inner } => handle_request("start handle_sign", || inner.execute()),
+        EnclaveAction::SignWithoutAssertion { inner } => {
+            handle_request("start handle_sign_without_assertion", || inner.execute())
+        }
+        EnclaveAction::CreateWalletKey { inner } => {
+            handle_request("start handle_create_wallet_key", || inner.execute())
+        }
+        EnclaveAction::ModifyPassword { inner } => {
+            handle_request("start handle_modify_password", || inner.execute())
+        }
+        EnclaveAction::RecoverWallet { inner } => {
+            handle_request("start handle_recover_wallet", || inner.execute())
+        }
+        EnclaveAction::TeeClientRegister { inner } => {
+            handle_request("start handle_tee_client_register", || inner.execute())
+        }
+    }
 }
 
-fn handle_create_wallet_key(request: EnclaveRequest<CreateWalletKeyRequest>) -> Result<Value> {
-    use serde_json::{Map, Value};
-    println!("start to create wallet key");
-    // Decrypt the individual field values (uses rayon for parallelization internally)
-    let res = request.execute()?;
-    let mut fields: HashMap<String, Value> = Default::default();
-    fields.insert("data".to_string(), serde_json::to_value(key_bonds)?);
-    let value = Value::Object(fields.into_iter().collect::<Map<String, Value>>());
-    Ok(value)
-}
-
-fn handle_modify_password(request: EnclaveRequest<ModifyPasswordRequest>) -> Result<Value> {
-    use serde_json::{Map, Value};
-    println!("start handle_modify_password");
-    // Decrypt the individual field values (uses rayon for parallelization internally)
-    let key_bonds = request.execute()?;
-    let mut fields: HashMap<String, Value> = Default::default();
-    fields.insert("data".to_string(), serde_json::to_value(key_bonds)?);
-    let value = Value::Object(fields.into_iter().collect::<Map<String, Value>>());
-    Ok(value)
-}
-
-fn handle_recover_wallet(request: EnclaveRequest<RecoverWalletRequest>) -> Result<Value> {
-    use serde_json::{Map, Value};
-    println!("start handle_modify_password");
-    // Decrypt the individual field values (uses rayon for parallelization internally)
-    let key_bonds = request.execute()?;
-    let mut fields: HashMap<String, Value> = Default::default();
-    fields.insert("data".to_string(), serde_json::to_value(key_bonds)?);
-    let value = Value::Object(fields.into_iter().collect::<Map<String, Value>>());
-    Ok(value)
-}
-
-fn handle_tee_client_register(request: EnclaveRequest<TeeClientRegisterRequest>) -> Result<Value> {
-    use serde_json::{Map, Value};
-    println!("start to handle tee_client_register");
-    // Decrypt the individual field values (uses rayon for parallelization internally)
-    let client = request.execute()?;
-    let mut fields: HashMap<String, Value> = Default::default();
-    fields.insert("data".to_string(), serde_json::to_value(key_bonds)?);
-    let value = Value::Object(fields.into_iter().collect::<Map<String, Value>>());
-    Ok(value)
+#[inline]
+fn read_request<S: Read>(stream: &mut S) -> Result<EnclaveAction> {
+    let payload_buffer =
+        recv_message(stream).map_err(|err| anyhow!("failed to receive message: {err:?}"))?;
+    parse_payload(&payload_buffer)
 }
 
 fn handle_client<S: Read + Write>(mut stream: S) -> Result<()> {
     println!("[enclave] handling client");
 
-    let response = match recv_message(&mut stream)
-        .map_err(|err| anyhow!("failed to receive message: {err:?}"))
-    {
-        Ok(payload_buffer) => match parse_payload(&payload_buffer) {
-            Ok(EnclaveAction::Sign { inner }) => handle_sign(inner),
-            Ok(EnclaveAction::SignWithoutAssertion { inner }) => {
-                handle_sign_without_assertion(inner)
-            }
-            Ok(EnclaveAction::CreateWalletKey { inner }) => handle_create_wallet_key(inner),
-            Ok(EnclaveAction::ModifyPassword { inner }) => handle_modify_password(inner),
-            Ok(EnclaveAction::RecoverWallet { inner }) => handle_recover_wallet(inner),
-            Ok(EnclaveAction::TeeClientRegister { inner }) => handle_tee_client_register(inner),
-            Err(err) => return send_error(stream, err),
-        },
+    let response = match read_request(&mut stream) {
+        Ok(action) => dispatch_action(action),
         Err(err) => return send_error(stream, err),
     };
 

@@ -1,15 +1,13 @@
-use std::fmt::format;
 use std::str::FromStr;
 
 use anyhow::{Context, Result, bail};
 use clap::{Parser, Subcommand};
 use enclave_vault::codec::{bs58::EncodeBs58, bs64::EncodeBs64, hex::DecodeHex};
-use enclave_vault::credential::common::Usage;
-use enclave_vault::credential::{attestation, aws};
+use enclave_vault::credential::aws;
 use enclave_vault::ed25519;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
-use serde_json::{Value, json};
+use serde_json::Value;
 
 const DEFAULT_BASE_URL: &str = "https://localhost:10001";
 const REGION: &str = "ap-southeast-1";
@@ -213,13 +211,27 @@ struct SignWithoutAssertionRequest {
 }
 
 #[derive(Debug, Deserialize)]
+struct RegisterTeeDeviceResponse {
+    client_ciphertext: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct CreateWalletKeyResponse {
+    key_bond_ciphertext: String,
+    wallet_pubkey: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct SignResponse {
+    sig: String,
+}
+
+#[derive(Debug, Deserialize)]
 struct ApiResponse {
     fields: std::collections::BTreeMap<String, Value>,
     #[serde(default)]
     errors: Option<Vec<String>>,
 }
-
-use enclave_vault::credential::attestation::apple::RealWorldSample;
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -261,16 +273,11 @@ async fn run_basic(client: &Client, base_url: &str) -> Result<()> {
     )
     .await?;
     println!("tee_response: {:?}", tee_response);
-    let register_doc_str = extract_string_field(&tee_response, "verified_client")
-        .or_else(|_| extract_first_string_value(&tee_response))
-        .context("tee_client_register did not return a usable verified_client value")?;
-    let register_doc = aws::parse_cose_sign1_view(&register_doc_str.decode_hex()?)?;
-    let verified_client_str = register_doc.payload.user_data.unwrap();
-    let verified_client = serde_json::Value::from_str(&verified_client_str)?;
-    //todo: 这里的json嵌套不应该过多
-    //let verified_client = verified_client["tee_client"].to_string();
-    let device_ciphertext: String =
-        serde_json::from_value(verified_client["tee_client"].clone()).unwrap_or_default();
+    let register_data: RegisterTeeDeviceResponse = serde_json::from_value(extract_attested_data(
+        &tee_response,
+    )?)
+    .context("tee_client_register data did not match RegisterTeeDeviceResponse")?;
+    let device_ciphertext = register_data.client_ciphertext;
     println!("{}", device_ciphertext);
     //由于每次device_ciphertext 都会变更，此处使用一个固定结果
     let device_ciphertext = FIX_DEVICE_CIPHERTEXT.to_owned();
@@ -310,20 +317,12 @@ async fn run_basic(client: &Client, base_url: &str) -> Result<()> {
     )
     .await?;
     println!("create_response: {:?}", create_response);
-
-    let create_wallet_key_doc_str = extract_string_field(&create_response, "verified_wallet_key")
-        .or_else(|_| extract_string_field(&create_response, "encrypted_wallet_key"))
-        .or_else(|_| extract_first_string_value(&create_response))
-        .context("create_wallet_key did not return a usable verified_wallet_key value")?;
-
-    let create_wallet_key_doc =
-        aws::parse_cose_sign1_view(&create_wallet_key_doc_str.decode_hex()?)?;
-    println!("create_wallet_key_doc: {:?}", create_wallet_key_doc);
-    let verified_wallet_key_str = create_wallet_key_doc.payload.user_data.unwrap();
-    let verified_wallet_key = serde_json::Value::from_str(&verified_wallet_key_str)?;
+    let create_data: CreateWalletKeyResponse = serde_json::from_value(extract_attested_data(
+        &create_response,
+    )?)
+    .context("create_wallet_key data did not match CreateWalletKeyResponse")?;
     // 同理这里的key_bond_ciphertext也是需要固定下来
-    let key_bond_ciphertext: String =
-        serde_json::from_value(verified_wallet_key["prikey"].clone()).unwrap_or_default();
+    let key_bond_ciphertext = create_data.key_bond_ciphertext;
 
     let key_bond_ciphertext = FIX_KEY_BOND_CIPHERTEXT.to_string();
     let confirm_create_wallet_key_payload = confirm_wallet_key_payload(&key_bond_ciphertext);
@@ -349,16 +348,9 @@ async fn run_basic(client: &Client, base_url: &str) -> Result<()> {
     let sign_response = post_json(client, base_url, "/sign", &sign_request, "sign").await?;
     println!("sign_response: {:?}", sign_response);
 
-    let sign_response_doc_str = extract_first_string_value(&sign_response)
-        .context("sign_response_doc_str did not return a usable sign_response_doc_str value")?;
-
-    let wallet_sign_doc = aws::parse_cose_sign1_view(&sign_response_doc_str.decode_hex()?)?;
-    println!("wallet_sign_doc: {:?}", wallet_sign_doc);
-    let wallet_sign_str = wallet_sign_doc.payload.user_data.unwrap();
-    let wallet_sign_res = serde_json::Value::from_str(&wallet_sign_str)?;
-    //todo: 这里的json嵌套不应该过多
-    //let verified_client = verified_client["tee_client"].to_string();
-    let wallet_sign_sig: String = serde_json::from_value(wallet_sign_res["sig"].clone()).unwrap();
+    let sign_data: SignResponse = serde_json::from_value(extract_attested_data(&sign_response)?)
+        .context("sign data did not match SignResponse")?;
+    let wallet_sign_sig = sign_data.sig;
     println!("wallet_sign_sig: {}", wallet_sign_sig);
 
     //4)    modify_password
@@ -442,12 +434,6 @@ async fn run_basic(client: &Client, base_url: &str) -> Result<()> {
     Ok(())
 }
 
-fn generate_pwd_signature() -> Result<(String, String)> {
-    let pubkey = password_pubkey(PASSWORD_SEED);
-    let sig = sign_with_password(PASSWORD_SEED, FIXED_PWD_SIGN_PAYLOAD)?;
-    Ok((pubkey, sig))
-}
-
 fn password_pubkey(password_seed: &str) -> String {
     let (_, pubkey) = ed25519::new_key_pair_by_seed(password_seed);
     pubkey.encode_bs58()
@@ -505,20 +491,32 @@ async fn post_json<T: Serialize>(
     Ok(parsed)
 }
 
-fn extract_string_field(response: &ApiResponse, key: &str) -> Result<String> {
+fn extract_attestation(response: &ApiResponse) -> Result<String> {
     response
         .fields
-        .get(key)
+        .get("attestation")
         .and_then(Value::as_str)
         .map(str::to_owned)
-        .with_context(|| format!("missing string field `{}` in response", key))
+        .or_else(|| {
+            response
+                .fields
+                .values()
+                .find_map(Value::as_str)
+                .map(str::to_owned)
+        })
+        .context("response did not contain any attestation string field")
 }
 
-fn extract_first_string_value(response: &ApiResponse) -> Result<String> {
-    response
-        .fields
-        .values()
-        .find_map(Value::as_str)
-        .map(str::to_owned)
-        .context("response did not contain any string field")
+fn extract_attested_data(response: &ApiResponse) -> Result<Value> {
+    let attestation = extract_attestation(response)?;
+    let attestation_doc = aws::parse_cose_sign1_view(&attestation.decode_hex()?)?;
+    let payload = attestation_doc
+        .payload
+        .user_data
+        .context("attestation payload did not contain user_data")?;
+    let attested_json = serde_json::Value::from_str(&payload)?;
+    attested_json
+        .get("data")
+        .cloned()
+        .context("attested payload did not contain `data`")
 }
