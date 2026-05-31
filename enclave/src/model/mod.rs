@@ -9,11 +9,11 @@ mod sign;
 mod sign_without_assertion;
 
 pub use create_wallet_key::Request as CreateWalletKeyRequest;
-pub use modify_password::Request as ModifyPwdRequest;
-pub use recover_wallet::Request as WalletRecoveryRequest;
+pub use modify_password::Request as ModifyPasswordRequest;
+pub use recover_wallet::Request as RecoverWalletRequest;
 pub use register_tee_device::Request as TeeClientRegisterRequest;
-pub use sign::Request as WalletSignRequest;
-pub use sign_without_assertion::Request as wallet_sign_without_assertionRequest;
+pub use sign::Request as SignRequest;
+pub use sign_without_assertion::Request as SignWithoutAssertionRequest;
 
 use std::collections::HashMap;
 use std::fmt;
@@ -113,10 +113,10 @@ pub struct EnclaveRequest<T> {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "action")]
 pub enum EnclaveAction {
-    #[serde(rename = "wallet_sign")]
-    WalletSign {
+    #[serde(rename = "sign")]
+    Sign {
         #[serde(flatten)]
-        inner: EnclaveRequest<WalletSignRequest>,
+        inner: EnclaveRequest<SignRequest>,
     },
     #[serde(rename = "create_wallet_key")]
     CreateWalletKey {
@@ -127,6 +127,21 @@ pub enum EnclaveAction {
     TeeClientRegister {
         #[serde(flatten)]
         inner: EnclaveRequest<TeeClientRegisterRequest>,
+    },
+    #[serde(rename = "modify_password")]
+    ModifyPassword {
+        #[serde(flatten)]
+        inner: EnclaveRequest<ModifyPasswordRequest>,
+    },
+    #[serde(rename = "recover_wallet")]
+    RecoverWallet {
+        #[serde(flatten)]
+        inner: EnclaveRequest<RecoverWalletRequest>,
+    },
+    #[serde(rename = "sign_without_assertion")]
+    SignWithoutAssertion {
+        #[serde(flatten)]
+        inner: EnclaveRequest<SignWithoutAssertionRequest>,
     },
 }
 

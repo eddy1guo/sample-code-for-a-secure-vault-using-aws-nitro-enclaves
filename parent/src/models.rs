@@ -314,10 +314,10 @@ pub enum EnclaveAction {
         #[serde(flatten)]
         inner: EnclaveRequest<ParentRequest>,
     },
-    #[serde(rename = "wallet_sign")]
-    WalletSign {
+    #[serde(rename = "sign")]
+    Sign {
         #[serde(flatten)]
-        inner: EnclaveRequest<WalletSignRequest>,
+        inner: EnclaveRequest<SignRequest>,
     },
     #[serde(rename = "create_wallet_key")]
     CreateWalletKey {
@@ -359,7 +359,7 @@ pub struct EnclaveResponse {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Validate)]
-pub struct WalletSignRequest {
+pub struct SignRequest {
     /// Encrypted wallet key bond payload.
     #[validate(length(min = 1, max = "MAX_ENCRYPTED_KEY_LENGTH"))]
     pub key_bond_ciphertext: String,

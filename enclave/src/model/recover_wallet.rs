@@ -26,6 +26,17 @@ pub struct Request {
     pub region: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct KeyBondMap {
+    pub key_bond_ciphertext: String,
+    pub wallet_pubkey: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Response {
+    pub new_key_bonds: Vec<KeyBondMap>,
+}
+
 impl EnclaveRequest<Request> {
     pub fn sign_payload(&self) -> String {
         #[derive(Serialize)]
@@ -91,7 +102,7 @@ impl EnclaveRequest<Request> {
         Ok(())
     }
 
-    pub fn execute(&self) -> Result<Vec<(String, String)>> {
+    pub fn execute(&self) -> Result<Response> {
         self.validate()?;
 
         tokio::runtime::Runtime::new()?.block_on(validate_nonce_issued_at(
@@ -175,9 +186,14 @@ impl EnclaveRequest<Request> {
             .map_err(|err| anyhow!("failed to call KMS:call_kms_encrypt: {err:?}"))?
             .encode_hex();
             println!("{},time={}", line!(), now_millis());
-            new_key_bonds.push((key_bond_ciphertext, wallet_pubkey))
+            //new_key_bonds.push((key_bond_ciphertext, wallet_pubkey))
+            let key_bond = KeyBondMap {
+                key_bond_ciphertext,
+                wallet_pubkey,
+            };
+            new_key_bonds.push(key_bond)
         }
         println!("{},time={}", line!(), now_millis());
-        Ok(new_key_bonds)
+        Ok(Response { new_key_bonds })
     }
 }

@@ -14,12 +14,10 @@ use serde_json::{Value, json};
 const DEFAULT_BASE_URL: &str = "https://localhost:10001";
 const REGION: &str = "ap-southeast-1";
 const KEY_ID: &str = "mrk-794e2c0173cd4848849739bf393a76b5";
-const PLACEHOLDER_SIG: &str = "xxxxxxxxxxxx";
 const PLACEHOLDER_MESSAGE: &str = "hello-wallet-sign";
 const PASSWORD_SEED: &str = "123456";
 const NEW_PASSWORD_SEED: &str = "223456";
-const PLACEHOLDER_KEY_BOND_CONFIRMED_ASSERTION: &str = "xxxx";
-const PLACEHOLDER_MODIFIED_ASSERTION: &str = "xxxx";
+const MODIFY_PASSWORD_ASSERTION: &str = "xxxx";
 const PLACEHOLDER_RECOVER_ASSERTION: &str = "xxxx";
 const PLACEHOLDER_NEW_DEVICE_CONFIRMED_ASSERTION: &str = "xxxx";
 const PLACEHOLDER_SIGN_WITHOUT_ASSERTION_SIGN_ASSERTION: &str = "xxxx";
@@ -43,14 +41,15 @@ const GOOGLE_ATTESTATION: [&str; 5] = [
     "MIICIjCCAaigAwIBAgIRAISp0Cl7DrWK5/8OgN52BgUwCgYIKoZIzj0EAwMwUjEcMBoGA1UEAwwTS2V5IEF0dGVzdGF0aW9uIENBMTEQMA4GA1UECwwHQW5kcm9pZDETMBEGA1UECgwKR29vZ2xlIExMQzELMAkGA1UEBhMCVVMwHhcNMjUwNzE3MjIzMjE4WhcNMzUwNzE1MjIzMjE4WjBSMRwwGgYDVQQDDBNLZXkgQXR0ZXN0YXRpb24gQ0ExMRAwDgYDVQQLDAdBbmRyb2lkMRMwEQYDVQQKDApHb29nbGUgTExDMQswCQYDVQQGEwJVUzB2MBAGByqGSM49AgEGBSuBBAAiA2IABCPaI3FO3z5bBQo8cuiEas4HjqCtG/mLFfRT0MsIssPBEEU5Cfbt6sH5yOAxqEi5QagpU1yX4HwnGb7OtBYpDTB57uH5Eczm34A5FNijV3s0/f0UPl7zbJcTx6xwqMIRq6NCMEAwDwYDVR0TAQH/BAUwAwEB/zAOBgNVHQ8BAf8EBAMCAQYwHQYDVR0OBBYEFFIyuyz7RkOb3NaBqQ5lZuA0QepAMAoGCCqGSM49BAMDA2gAMGUCMETfjPO/HwqReR2CS7p0ZWoD/LHs6hDi422opifHEUaYLxwGlT9SLdjkVpz0UUOR5wIxAIoGyxGKRHVTpqpGRFiJtQEOOTp/+s1GcxeYuR2zh/80lQyu9vAFCj6E4AXc+osmRg==",
 ];
 const FIX_DEVICE_CIPHERTEXT: &str = "0102020078b745c66ff477962a0c7936db47664e72366aea22ffbe5c791a8b8de1d273e9d701bec18902886bdfb420c6e57eddfb3695000001443082014006092a864886f70d010706a08201313082012d0201003082012606092a864886f70d010701301e060960864801650304012e3011040c0fdff1d96e95dc283b814d480201108081f8c319d95637289019b1aae29bc8483de07f4c0eba0411260dde108d21e0b13b53ca74cd1d4b6d58a1891452f3cf1b73970334402aa7c9c8959ec60cb5e0e2f9cdf19a49320fcf607c5aee10fb7baabb1f13c86c789dcc13bdc00a88bd049452c42272df2a3b9465ea503c254c5d1dcc797e8a0f9033f0099a549f6416947867712200c30114d932b9aef28f1a05f1867225d4733a3dea7d8d8713e6efa36a701c9490d26366b9632057d49f79c5699459fd71b6ae43d674aa570a9e9f25fd592e9623fc2046a7aac30290ab2867db94c63915e7070592e1c464c506b1b89e3007ffa2a1313f3cc6fd69bb40b943f7c0eecbb14cfb269fe8db";
+const FIX_KEY_BOND_CIPHERTEXT: &str = "0102020078b745c66ff477962a0c7936db47664e72366aea22ffbe5c791a8b8de1d273e9d701b387059a1e649db8e764e314ca6e0b24000002a03082029c06092a864886f70d010706a082028d308202890201003082028206092a864886f70d010701301e060960864801650304012e3011040c0b2385272435118ed332eb6d02011080820253b5f3bf4fa355fdb0e1d54865df052736484877c4cdd5ccfbc87480bec13b051e4e49024efb6c7b37545ab6bc425ccda9b14d8b691ecbf6a374316ce2331de30579e99b8733b432d02eb3500934d30efdf30fe190479edc75794e5bbc556fa26d6df7025cabc16d3d33eb9768f7bd6836dd7f4f5714b3f0d41969c1dbbf36437ec80909a8482f22cfc54270b692b3fc7d2dea1a590385832ba9bb28fb8e157d11462d3482a88602dab9891d1b8e9a03e4396ea4469f65a3ba8f5fce56cce55b144926fc6334cc4c7993d17f5655c55fc5a9dbab0e3024f4c2b52c81379a3493a4461e256ad36de16512cb38d50efcab9a521f10b43cd26fc017c35b6ebf828dc0dff7729b38db8e9cd6340f2555fd3e8db0515b1a143886da55b5c33eb3f90da48938d6d7a1e91bc3b6f6d4188e9c15a0d7e812e9b0f6764a558ab0d1714e114008c8d31d954c0972de7ab4f8addd2923527a541bd6a230b83413f47d07108c58c6a9387aea507500051c748fd79f3ffc3133db26184f2625624af0a24edfffb5cecbfd29db7bf8d390ada90a49f6be5d96cdd160971fcbbb327452363ea2013a620b6493158bc289b383a30117e36deb5438e6804a87ddf8982b0bcea9dabc9c14e43e7733ba19a0f00acc78877497508f54bebc73c700e6a1a8bc4993129e78a6c82ccfa812691e3866ee89c5be98a0bf29a93a60ee6dcde8fa91dd1145efe0d322c0af6892dfe9eddaff76611179c810a455566a58a511cd872b3c5326853f36b821d83306c9a2cb0fa026bd56b0214b302b74b87821409bd0b3b8cfc993397b5f47bd090c088b511d9dc63b5b1899e4f8fe";
 const CONFIRM_DEVICE_ASSERTION: &str = "MEQCIAR5vzfjU8+zpQ/jU2mZdgSYYO3OFw9g9VEAGIg9RbqsAiAi/r5y+OaQAVsLI5Zi6Z5m7wkZcihbr5Uz8iDSYp5jhA==";
 const CREATE_KEY_ASSERTION: &str = "MEUCIQDkUENQfUm7y4fk+M1Xml2LpCtox3m09reCFClLidiOAwIgOKwT/RR5uwYvHxd9uWtfCAVIKbact5vD7YcA6tqZiXI=";
-
+const CONFIRM_KEY_ASSERTION: &str = "MEQCICy9lFgMfDtfh2C0LiwiV2zvifYz3bKI/qj9LP2LaxsQAiAcHScuvIvfexXRhn8ljHmUWb8j+zEi08AUhSWpAQAVlQ==";
+const SIGN_ASSERTION: &str = "MEQCIGkPGoSm8cBNfUShXdCOMPcR+ulQQ14wEq+0O/V1yTu7AiAwVqL5mT642qXO4b1I04sAMd9IWZngX/zB2gRHOp9mRw==";
 // {"type":"ConfirmTeeDevice","message": "xx_tee_device_cipher_text_xx"}
 const CONFIRM_TEE_CLIENT_REGISTER_ASSERTION: &str = "LnxoVdHGe+HnCcwS7FCWJecITXf2KlJBoHO7/Jr4DFI=";
 
 // {"type":"Sign","message": "xxxx","issued_at":1779876890,"nonce":"1111"}
-const SIGN_ASSERTION: &str = "LnxoVdHGe+HnCcwS7FCWJecITXf2KlJBoHO7/Jr4DFI=";
 
 // {"type":"ConfirmWalletKey","message": "xx_wallet_key_cipher_text_xx"}
 const CONFIRM_KEY_BOND_ASSERTION: &str = "LnxoVdHGe+HnCcwS7FCWJecITXf2KlJBoHO7/Jr4DFI=";
@@ -159,7 +158,7 @@ struct CreateWalletKeyRequest {
 }
 
 #[derive(Debug, Serialize)]
-struct WalletSignRequest {
+struct SignRequest {
     key_bond_ciphertext: String,
     key_bond_confirmed_assertion: String,
     pwd_sig: String,
@@ -238,9 +237,6 @@ async fn main() -> Result<()> {
 }
 
 async fn run_basic(client: &Client, base_url: &str) -> Result<()> {
-    let new_pwd_pubkey = password_pubkey(NEW_PASSWORD_SEED);
-    let new_pwd_sig = sign_with_password(NEW_PASSWORD_SEED, FIXED_PWD_SIGN_PAYLOAD)?;
-
     let register_tee_device_payload = register_tee_device_payload();
     println!(
         "register_tee_device_payload: {}",
@@ -325,20 +321,29 @@ async fn run_basic(client: &Client, base_url: &str) -> Result<()> {
     println!("create_wallet_key_doc: {:?}", create_wallet_key_doc);
     let verified_wallet_key_str = create_wallet_key_doc.payload.user_data.unwrap();
     let verified_wallet_key = serde_json::Value::from_str(&verified_wallet_key_str)?;
-    //todo: 这里的json嵌套不应该过多
-    //let verified_client = verified_client["tee_client"].to_string();
+    // 同理这里的key_bond_ciphertext也是需要固定下来
     let key_bond_ciphertext: String =
         serde_json::from_value(verified_wallet_key["prikey"].clone()).unwrap_or_default();
 
-    let sign_request: WalletSignRequest = WalletSignRequest {
+    let key_bond_ciphertext = FIX_KEY_BOND_CIPHERTEXT.to_string();
+    let confirm_create_wallet_key_payload = confirm_wallet_key_payload(&key_bond_ciphertext);
+    println!(
+        "confirm_create_wallet_key_payload: {}",
+        confirm_create_wallet_key_payload
+    );
+    //3) sign
+    let sign_payload = sign_payload(&PLACEHOLDER_MESSAGE.as_bytes().encode_bs64());
+    println!("sign_payload: {}", sign_payload);
+    let pwd_sig = sign_with_password(PASSWORD_SEED, &sign_payload)?;
+    let sign_request: SignRequest = SignRequest {
         message: PLACEHOLDER_MESSAGE.as_bytes().encode_bs64(),
         issued_at: ISSUED_AT,
         nonce: NONCE.to_string(),
         region: REGION.to_string(),
-        pwd_sig: PLACEHOLDER_SIG.to_string(),
-        key_bond_ciphertext: key_bond_ciphertext.clone(),
-        key_bond_confirmed_assertion: PLACEHOLDER_SIG.to_string(),
-        sign_assertion: PLACEHOLDER_SIG.to_string(),
+        pwd_sig,
+        key_bond_ciphertext: key_bond_ciphertext.to_string(),
+        key_bond_confirmed_assertion: CONFIRM_KEY_ASSERTION.to_string(),
+        sign_assertion: SIGN_ASSERTION.to_string(),
     };
 
     let sign_response = post_json(client, base_url, "/sign", &sign_request, "sign").await?;
@@ -348,7 +353,7 @@ async fn run_basic(client: &Client, base_url: &str) -> Result<()> {
         .context("sign_response_doc_str did not return a usable sign_response_doc_str value")?;
 
     let wallet_sign_doc = aws::parse_cose_sign1_view(&sign_response_doc_str.decode_hex()?)?;
-    println!("create_wallet_key_doc: {:?}", wallet_sign_doc);
+    println!("wallet_sign_doc: {:?}", wallet_sign_doc);
     let wallet_sign_str = wallet_sign_doc.payload.user_data.unwrap();
     let wallet_sign_res = serde_json::Value::from_str(&wallet_sign_str)?;
     //todo: 这里的json嵌套不应该过多
@@ -356,16 +361,22 @@ async fn run_basic(client: &Client, base_url: &str) -> Result<()> {
     let wallet_sign_sig: String = serde_json::from_value(wallet_sign_res["sig"].clone()).unwrap();
     println!("wallet_sign_sig: {}", wallet_sign_sig);
 
+    //4)    modify_password
+    let new_pwd_pubkey = password_pubkey(NEW_PASSWORD_SEED);
+    let modify_payload = modify_password_payload();
+    println!("modify_payload: {}", modify_payload);
+    let new_pwd_sig = sign_with_password(NEW_PASSWORD_SEED, &modify_payload)?;
+
     let key_bonds = vec![ConfirmedKeyBond {
         ciphertext: key_bond_ciphertext.clone(),
-        confirmed_assertion: PLACEHOLDER_KEY_BOND_CONFIRMED_ASSERTION.to_string(),
+        confirmed_assertion: CONFIRM_DEVICE_ASSERTION.to_string(),
     }];
 
     let modify_password_request = ModifyPasswordRequest {
         key_bonds: key_bonds.clone(),
         new_pwd_pubkey: new_pwd_pubkey,
         new_pwd_sig,
-        assertion: PLACEHOLDER_MODIFIED_ASSERTION.to_string(),
+        assertion: MODIFY_PASSWORD_ASSERTION.to_string(),
         issued_at: ISSUED_AT,
         nonce: NONCE.to_string(),
         key_id: KEY_ID.to_string(),
@@ -381,7 +392,8 @@ async fn run_basic(client: &Client, base_url: &str) -> Result<()> {
     )
     .await?;
     println!("modify_password_response: {:?}", modify_password_response);
-
+    //todo: 先用sign_without 来验证新密码
+    panic!();
     let recover_wallet_request = RecoverWalletRequest {
         new_device_ciphertext: device_ciphertext,
         new_device_confirmed_assertion: PLACEHOLDER_NEW_DEVICE_CONFIRMED_ASSERTION.to_string(),
@@ -406,7 +418,7 @@ async fn run_basic(client: &Client, base_url: &str) -> Result<()> {
 
     let sign_without_assertion_request = SignWithoutAssertionRequest {
         key_bond_ciphertext,
-        key_bond_confirmed_assertion: PLACEHOLDER_KEY_BOND_CONFIRMED_ASSERTION.to_string(),
+        key_bond_confirmed_assertion: PLACEHOLDER_SIGN_WITHOUT_ASSERTION_SIGN_ASSERTION.to_string(),
         pwd_sig,
         sign_assertion: PLACEHOLDER_SIGN_WITHOUT_ASSERTION_SIGN_ASSERTION.to_string(),
         message: PLACEHOLDER_MESSAGE.as_bytes().encode_bs64(),

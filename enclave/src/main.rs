@@ -10,7 +10,7 @@ use std::thread;
 use anyhow::{Error, Result, anyhow, bail};
 use enclave_vault::credential::aws::get_attestation_document;
 use enclave_vault::error::ErrorType;
-use enclave_vault::model::WalletSignRequest;
+use enclave_vault::model::{ModifyPasswordRequest, RecoverWalletRequest, SignRequest};
 use enclave_vault::models::{CreateWalletKeyRequest, EnclaveAction, TeeClientRegisterRequest};
 use enclave_vault::{
     constants::{ENCLAVE_PORT, MAX_CONCURRENT_CONNECTIONS},
@@ -65,10 +65,23 @@ fn sanitize_error_message(err: &Error) -> String {
     }
 }
 
-fn handle_wallet_sign(request: EnclaveRequest<WalletSignRequest>) -> Result<Value> {
+fn handle_sign_without_assertion(
+    request: EnclaveRequest<enclave_vault::model::SignWithoutAssertionRequest>,
+) -> Result<Value> {
     use serde_json::{Map, Value};
     println!("{}:{}", file!(), line!());
-    let sig = request.sign()?;
+    let sig = request.execute()?;
+    println!("{}:{}", file!(), line!());
+    let mut fields: HashMap<String, Value> = Default::default();
+    fields.insert("sig".to_string(), sig.into());
+    let value = Value::Object(fields.into_iter().collect::<Map<String, Value>>());
+    Ok(value)
+}
+
+fn handle_sign(request: EnclaveRequest<SignRequest>) -> Result<Value> {
+    use serde_json::{Map, Value};
+    println!("{}:{}", file!(), line!());
+    let sig = request.execute()?;
     println!("{}:{}", file!(), line!());
     let mut fields: HashMap<String, Value> = Default::default();
     fields.insert("sig".to_string(), sig.into());
@@ -80,10 +93,32 @@ fn handle_create_wallet_key(request: EnclaveRequest<CreateWalletKeyRequest>) -> 
     use serde_json::{Map, Value};
     println!("start to create wallet key");
     // Decrypt the individual field values (uses rayon for parallelization internally)
-    let (prikey, pubkey) = request.create()?;
+    let (prikey, pubkey) = request.execute()?;
     let mut fields: HashMap<String, Value> = Default::default();
     fields.insert("prikey".to_string(), prikey.into());
     fields.insert("pubkey".to_string(), pubkey.into());
+    let value = Value::Object(fields.into_iter().collect::<Map<String, Value>>());
+    Ok(value)
+}
+
+fn handle_modify_password(request: EnclaveRequest<ModifyPasswordRequest>) -> Result<Value> {
+    use serde_json::{Map, Value};
+    println!("start handle_modify_password");
+    // Decrypt the individual field values (uses rayon for parallelization internally)
+    let key_bonds = request.execute()?;
+    let mut fields: HashMap<String, Value> = Default::default();
+    fields.insert("data".to_string(), serde_json::to_value(key_bonds)?);
+    let value = Value::Object(fields.into_iter().collect::<Map<String, Value>>());
+    Ok(value)
+}
+
+fn handle_recover_wallet(request: EnclaveRequest<RecoverWalletRequest>) -> Result<Value> {
+    use serde_json::{Map, Value};
+    println!("start handle_modify_password");
+    // Decrypt the individual field values (uses rayon for parallelization internally)
+    let key_bonds = request.execute()?;
+    let mut fields: HashMap<String, Value> = Default::default();
+    fields.insert("data".to_string(), serde_json::to_value(key_bonds)?);
     let value = Value::Object(fields.into_iter().collect::<Map<String, Value>>());
     Ok(value)
 }
@@ -92,7 +127,7 @@ fn handle_tee_client_register(request: EnclaveRequest<TeeClientRegisterRequest>)
     use serde_json::{Map, Value};
     println!("start to handle tee_client_register");
     // Decrypt the individual field values (uses rayon for parallelization internally)
-    let client = request.encrypt_tee_client()?;
+    let client = request.execute()?;
     let mut fields: HashMap<String, Value> = Default::default();
     fields.insert("tee_client".to_string(), client.into());
     let value = Value::Object(fields.into_iter().collect::<Map<String, Value>>());
@@ -106,13 +141,24 @@ fn handle_client<S: Read + Write>(mut stream: S) -> Result<()> {
         .map_err(|err| anyhow!("failed to receive message: {err:?}"))
     {
         Ok(payload_buffer) => match parse_payload(&payload_buffer) {
-            Ok(EnclaveAction::WalletSign { inner }) => (
+            Ok(EnclaveAction::Sign { inner }) => {
+                (inner.request.nonce.clone().into_bytes(), handle_sign(inner))
+            }
+            Ok(EnclaveAction::SignWithoutAssertion { inner }) => (
                 inner.request.nonce.clone().into_bytes(),
-                handle_wallet_sign(inner),
+                handle_sign_without_assertion(inner),
             ),
             Ok(EnclaveAction::CreateWalletKey { inner }) => (
                 inner.request.nonce.clone().into_bytes(),
                 handle_create_wallet_key(inner),
+            ),
+            Ok(EnclaveAction::ModifyPassword { inner }) => (
+                inner.request.nonce.clone().into_bytes(),
+                handle_modify_password(inner),
+            ),
+            Ok(EnclaveAction::RecoverWallet { inner }) => (
+                inner.request.nonce.clone().into_bytes(),
+                handle_recover_wallet(inner),
             ),
             Ok(EnclaveAction::TeeClientRegister { inner }) => (
                 inner.request.nonce.clone().into_bytes(),

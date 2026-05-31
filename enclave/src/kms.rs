@@ -139,9 +139,9 @@ pub fn get_tee_client(
     Ok(client)
 }
 
-use crate::model::WalletRecoveryRequest;
+use crate::model::RecoverWalletRequest;
 //todo: 整理
-pub fn get_tee_client2(payload: &EnclaveRequest<WalletRecoveryRequest>) -> Result<TeeClient> {
+pub fn get_tee_client2(payload: &EnclaveRequest<RecoverWalletRequest>) -> Result<TeeClient> {
     println!("{}:{}", file!(), line!());
     let plaintext = call_kms_decrypt(
         &payload.credential,

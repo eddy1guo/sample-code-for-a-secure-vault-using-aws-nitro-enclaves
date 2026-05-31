@@ -82,7 +82,7 @@ impl EnclaveRequest<Request> {
         .map_err(|err| anyhow!("failed to call KMS:call_kms_encrypt: {err:?}"))
     }
 
-    pub fn create(&self) -> Result<(String, String)> {
+    pub fn execute(&self) -> Result<(String, String)> {
         tokio::runtime::Runtime::new()?.block_on(validate_nonce_issued_at(
             &self.request.nonce,
             self.request.issued_at,

@@ -21,7 +21,7 @@ use crate::application::AppState;
 use crate::constants;
 use crate::errors::AppError;
 use crate::models::CreateWalletKeyRequest;
-use crate::models::WalletSignRequest;
+use crate::models::SignRequest;
 use crate::models::{
     ApiResponse, Credential, EnclaveAction, EnclaveDescribeInfo, EnclaveRequest, EnclaveResponse,
     EnclaveRunInfo, ModifyPasswordRequest, ParentRequest, RecoverWalletRequest,
@@ -212,11 +212,10 @@ pub async fn create_wallet_key(
 #[tracing::instrument(skip(state, request))]
 pub async fn sign(
     State(state): State<Arc<AppState>>,
-    Json(request): Json<WalletSignRequest>,
+    Json(request): Json<SignRequest>,
 ) -> Result<Json<ApiResponse>, AppError> {
     let response =
-        call_enclave_with_request(state, request, |inner| EnclaveAction::WalletSign { inner })
-            .await?;
+        call_enclave_with_request(state, request, |inner| EnclaveAction::Sign { inner }).await?;
 
     Ok(Json(into_api_response(response)))
 }

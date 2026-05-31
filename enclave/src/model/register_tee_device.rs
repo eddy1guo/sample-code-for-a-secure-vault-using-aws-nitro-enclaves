@@ -48,7 +48,7 @@ impl EnclaveRequest<Request> {
         Ok(())
     }
 
-    pub fn encrypt_tee_client(&self) -> Result<String> {
+    pub fn execute(&self) -> Result<String> {
         tokio::runtime::Runtime::new()?.block_on(validate_nonce_issued_at(
             &self.request.nonce,
             self.request.issued_at,

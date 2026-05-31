@@ -95,7 +95,7 @@ impl EnclaveRequest<Request> {
         Ok(())
     }
 
-    pub fn sign(&self) -> Result<String> {
+    pub fn execute(&self) -> Result<String> {
         self.validate()?;
         println!("file={},line={}", file!(), line!());
 
