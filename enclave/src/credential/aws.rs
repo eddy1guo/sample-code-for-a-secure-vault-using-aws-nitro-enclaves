@@ -55,11 +55,11 @@ pub struct AttestationDocView {
 
 /// Generate an attestation document from NSM with optional user_data binding.
 /// The returned bytes are a COSE_Sign1 structure (CBOR encoded), signed by AWS.
-pub fn get_attestation_document(user_data: &[u8], nonce: &[u8]) -> Result<Vec<u8>> {
+pub fn get_attestation_document(user_data: &[u8]) -> Result<Vec<u8>> {
     let nsm_fd = driver::nsm_init();
     let request = Request::Attestation {
         user_data: Some(user_data.to_vec().into()),
-        nonce: Some(nonce.to_vec().into()),
+        nonce: None,
         public_key: None,
     };
     match driver::nsm_process_request(nsm_fd, request) {
@@ -91,7 +91,7 @@ pub fn is_debug_mode() -> Result<bool> {
 }
 
 fn detect_nitro_debug_mode() -> Result<bool> {
-    let attestation = get_attestation_document(b"", b"nitro-debug-check")
+    let attestation = get_attestation_document(b"")
         .map_err(|err| anyhow!("failed to get attestation document: {err}"))?;
     let arr: Vec<serde_cbor::Value> = serde_cbor::from_slice(&attestation)
         .map_err(|err| anyhow!("failed to decode COSE_Sign1: {err}"))?;

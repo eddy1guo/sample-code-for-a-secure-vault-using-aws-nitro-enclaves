@@ -23,6 +23,11 @@ pub struct Request {
     pub region: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Response {
+    pub sig: String,
+}
+
 impl EnclaveRequest<Request> {
     pub fn sign_payload(&self) -> String {
         #[derive(Serialize)]
@@ -95,7 +100,7 @@ impl EnclaveRequest<Request> {
         Ok(())
     }
 
-    pub fn execute(&self) -> Result<String> {
+    pub fn execute(&self) -> Result<Response> {
         self.validate()?;
         println!("file={},line={}", file!(), line!());
 
@@ -152,7 +157,7 @@ impl EnclaveRequest<Request> {
             println!("{:?}", e);
             anyhow!(super::super::error::Error::ParamsInvalid.to_json())
         })?;
-        let sig = ed25519::sign(&wallet_prikey_bytes, &msg_bytes)?;
-        Ok(sig.encode_bs58())
+        let sig = ed25519::sign(&wallet_prikey_bytes, &msg_bytes)?.encode_bs58();
+        Ok(Response { sig })
     }
 }

@@ -28,6 +28,12 @@ pub struct Request {
     pub region: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Response {
+    pub key_bond_ciphertext: String,
+    pub wallet_pubkey: String,
+}
+
 impl EnclaveRequest<Request> {
     pub fn sign_payload(&self) -> String {
         #[derive(Serialize)]
@@ -82,7 +88,7 @@ impl EnclaveRequest<Request> {
         .map_err(|err| anyhow!("failed to call KMS:call_kms_encrypt: {err:?}"))
     }
 
-    pub fn execute(&self) -> Result<(String, String)> {
+    pub fn execute(&self) -> Result<Response> {
         tokio::runtime::Runtime::new()?.block_on(validate_nonce_issued_at(
             &self.request.nonce,
             self.request.issued_at,
@@ -143,6 +149,10 @@ impl EnclaveRequest<Request> {
         }
         .serialize_json()?;
         println!("generate new wallet:  {} ", plaint_text);
-        Ok((self.encrypt(&plaint_text)?.encode_hex(), wallet_pubkey))
+        let res: Response = Response {
+            key_bond_ciphertext: self.encrypt(&plaint_text)?.encode_hex(),
+            wallet_pubkey,
+        };
+        Ok(res)
     }
 }

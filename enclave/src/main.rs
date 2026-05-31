@@ -73,7 +73,7 @@ fn handle_sign_without_assertion(
     let sig = request.execute()?;
     println!("{}:{}", file!(), line!());
     let mut fields: HashMap<String, Value> = Default::default();
-    fields.insert("sig".to_string(), sig.into());
+    fields.insert("data".to_string(), serde_json::to_value(key_bonds)?);
     let value = Value::Object(fields.into_iter().collect::<Map<String, Value>>());
     Ok(value)
 }
@@ -84,7 +84,7 @@ fn handle_sign(request: EnclaveRequest<SignRequest>) -> Result<Value> {
     let sig = request.execute()?;
     println!("{}:{}", file!(), line!());
     let mut fields: HashMap<String, Value> = Default::default();
-    fields.insert("sig".to_string(), sig.into());
+    fields.insert("data".to_string(), serde_json::to_value(key_bonds)?);
     let value = Value::Object(fields.into_iter().collect::<Map<String, Value>>());
     Ok(value)
 }
@@ -93,10 +93,9 @@ fn handle_create_wallet_key(request: EnclaveRequest<CreateWalletKeyRequest>) -> 
     use serde_json::{Map, Value};
     println!("start to create wallet key");
     // Decrypt the individual field values (uses rayon for parallelization internally)
-    let (prikey, pubkey) = request.execute()?;
+    let res = request.execute()?;
     let mut fields: HashMap<String, Value> = Default::default();
-    fields.insert("prikey".to_string(), prikey.into());
-    fields.insert("pubkey".to_string(), pubkey.into());
+    fields.insert("data".to_string(), serde_json::to_value(key_bonds)?);
     let value = Value::Object(fields.into_iter().collect::<Map<String, Value>>());
     Ok(value)
 }
@@ -129,7 +128,7 @@ fn handle_tee_client_register(request: EnclaveRequest<TeeClientRegisterRequest>)
     // Decrypt the individual field values (uses rayon for parallelization internally)
     let client = request.execute()?;
     let mut fields: HashMap<String, Value> = Default::default();
-    fields.insert("tee_client".to_string(), client.into());
+    fields.insert("data".to_string(), serde_json::to_value(key_bonds)?);
     let value = Value::Object(fields.into_iter().collect::<Map<String, Value>>());
     Ok(value)
 }
@@ -137,33 +136,18 @@ fn handle_tee_client_register(request: EnclaveRequest<TeeClientRegisterRequest>)
 fn handle_client<S: Read + Write>(mut stream: S) -> Result<()> {
     println!("[enclave] handling client");
 
-    let (client_nonce, response) = match recv_message(&mut stream)
+    let response = match recv_message(&mut stream)
         .map_err(|err| anyhow!("failed to receive message: {err:?}"))
     {
         Ok(payload_buffer) => match parse_payload(&payload_buffer) {
-            Ok(EnclaveAction::Sign { inner }) => {
-                (inner.request.nonce.clone().into_bytes(), handle_sign(inner))
+            Ok(EnclaveAction::Sign { inner }) => handle_sign(inner),
+            Ok(EnclaveAction::SignWithoutAssertion { inner }) => {
+                handle_sign_without_assertion(inner)
             }
-            Ok(EnclaveAction::SignWithoutAssertion { inner }) => (
-                inner.request.nonce.clone().into_bytes(),
-                handle_sign_without_assertion(inner),
-            ),
-            Ok(EnclaveAction::CreateWalletKey { inner }) => (
-                inner.request.nonce.clone().into_bytes(),
-                handle_create_wallet_key(inner),
-            ),
-            Ok(EnclaveAction::ModifyPassword { inner }) => (
-                inner.request.nonce.clone().into_bytes(),
-                handle_modify_password(inner),
-            ),
-            Ok(EnclaveAction::RecoverWallet { inner }) => (
-                inner.request.nonce.clone().into_bytes(),
-                handle_recover_wallet(inner),
-            ),
-            Ok(EnclaveAction::TeeClientRegister { inner }) => (
-                inner.request.nonce.clone().into_bytes(),
-                handle_tee_client_register(inner),
-            ),
+            Ok(EnclaveAction::CreateWalletKey { inner }) => handle_create_wallet_key(inner),
+            Ok(EnclaveAction::ModifyPassword { inner }) => handle_modify_password(inner),
+            Ok(EnclaveAction::RecoverWallet { inner }) => handle_recover_wallet(inner),
+            Ok(EnclaveAction::TeeClientRegister { inner }) => handle_tee_client_register(inner),
             Err(err) => return send_error(stream, err),
         },
         Err(err) => return send_error(stream, err),
@@ -176,8 +160,7 @@ fn handle_client<S: Read + Write>(mut stream: S) -> Result<()> {
 
             println!("[enclave] sending response to parent: payload {}", payload);
 
-            let attestation_document =
-                get_attestation_document(payload.as_bytes(), &client_nonce).unwrap();
+            let attestation_document = get_attestation_document(payload.as_bytes()).unwrap();
             let final_fields = [(
                 "attestation".to_string(),
                 hex::encode(&attestation_document).into(),

@@ -19,6 +19,11 @@ pub struct Request {
     pub region: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Response {
+    pub client_ciphertext: String,
+}
+
 impl EnclaveRequest<Request> {
     pub fn sign_payload(&self) -> String {
         #[derive(Serialize)]
@@ -48,7 +53,7 @@ impl EnclaveRequest<Request> {
         Ok(())
     }
 
-    pub fn execute(&self) -> Result<String> {
+    pub fn execute(&self) -> Result<Response> {
         tokio::runtime::Runtime::new()?.block_on(validate_nonce_issued_at(
             &self.request.nonce,
             self.request.issued_at,
@@ -68,13 +73,14 @@ impl EnclaveRequest<Request> {
         }
         .serialize_json()?;
         println!("file={},line={}", file!(), line!());
-        call_kms_encrypt(
+        let client_ciphertext = call_kms_encrypt(
             &self.credential,
             &tee_client,
             &self.request.region,
             &self.request.key_id,
         )
         .map(|x| x.encode_hex())
-        .map_err(|err| anyhow!("failed to call KMS:call_kms_encrypt: {err:?}"))
+        .map_err(|err| anyhow!("failed to call KMS:call_kms_encrypt: {err:?}"))?;
+        Ok(Response { client_ciphertext })
     }
 }
