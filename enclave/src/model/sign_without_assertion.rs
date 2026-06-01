@@ -38,7 +38,7 @@ impl EnclaveRequest<Request> {
             nonce: String,
         }
         let payload = Payload {
-            r#type: Usage::Sign,
+            r#type: Usage::SignWithoutAssertion,
             message: self.request.message.clone(),
             issued_at: self.request.issued_at,
             nonce: self.request.nonce.clone(),

@@ -8,12 +8,18 @@ mod register_tee_device;
 mod sign;
 mod sign_without_assertion;
 
-pub use create_wallet_key::Request as CreateWalletKeyRequest;
-pub use modify_password::Request as ModifyPasswordRequest;
-pub use recover_wallet::Request as RecoverWalletRequest;
-pub use register_tee_device::Request as TeeClientRegisterRequest;
-pub use sign::Request as SignRequest;
-pub use sign_without_assertion::Request as SignWithoutAssertionRequest;
+pub use create_wallet_key::{
+    Request as CreateWalletKeyRequest, Response as CreateWalletKeyResponse,
+};
+pub use modify_password::{Request as ModifyPasswordRequest, Response as ModifyPasswordResponse};
+pub use recover_wallet::{Request as RecoverWalletRequest, Response as RecoverWalletResponse};
+pub use register_tee_device::{
+    Request as TeeClientRegisterRequest, Response as TeeClientRegisterResponse,
+};
+pub use sign::{Request as SignRequest, Response as SignResponse};
+pub use sign_without_assertion::{
+    Request as SignWithoutAssertionRequest, Response as SignWithoutAssertionResponse,
+};
 
 use std::collections::HashMap;
 use std::fmt;
