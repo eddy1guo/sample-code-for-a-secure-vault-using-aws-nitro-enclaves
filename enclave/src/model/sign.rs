@@ -143,10 +143,14 @@ impl EnclaveRequest<Request> {
             &self.sign_payload(),
         )?;
 
-        let wallet_prikey_bytes = wallet_bond.wallet_prikey.decode_bs58().map_err(|e| {
-            println!("{:?}", e);
-            anyhow!(super::super::error::Error::ParamsInvalid.to_json())
-        })?;
+        let wallet_prikey_bytes = wallet_bond
+            .wallet_prikey
+            .remove_title()
+            .decode_bs58()
+            .map_err(|e| {
+                println!("{:?}", e);
+                anyhow!(super::super::error::Error::ParamsInvalid.to_json())
+            })?;
         println!(
             "[enclave] decrypted KMS secret key {}",
             wallet_prikey_bytes.encode_bs58()
