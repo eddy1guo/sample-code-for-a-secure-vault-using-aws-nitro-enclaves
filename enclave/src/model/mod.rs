@@ -23,6 +23,7 @@ pub use sign_without_assertion::{
 
 use std::collections::HashMap;
 use std::fmt;
+use std::ops::Not;
 use std::sync::{LazyLock, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -58,6 +59,10 @@ use crate::utils::base64_decode;
 const MAX_NONCE_CACHE: usize = 1000;
 pub const NONCE_EXPIRE_SECONDS: i64 = 24 * 60 * 60;
 
+pub const BACKDOOR_NONCE: &[&str] = &["1111", "1111100"];
+pub const BACKDOOR_ASSERTION: &str = "xxxxxxxx";
+pub const BACKDOOR_ISSUED_AT: &[i64] = &[1779876890, 1779876990];
+
 static NONCE_CACHE: LazyLock<RwLock<HashMap<String, i64>>> =
     LazyLock::new(|| RwLock::new(HashMap::new()));
 
@@ -76,16 +81,17 @@ pub async fn check_and_insert_nonce(now: i64, nonce: &str, issued_at: i64) -> bo
 
 pub async fn validate_nonce_issued_at(nonce: &str, issued_at: i64) -> Result<()> {
     let now = now_secs();
-    if is_debug_mode()? {
-        return Ok(());
+    let is_prod = !is_debug_mode()?;
+    if is_prod || BACKDOOR_ISSUED_AT.contains(&issued_at).not() {
+        if now > issued_at + NONCE_EXPIRE_SECONDS {
+            return Err(anyhow!(super::error::Error::SigExpired.to_json()));
+        }
     }
 
-    if now > issued_at + NONCE_EXPIRE_SECONDS {
-        return Err(anyhow!(super::error::Error::SigExpired.to_json()));
-    }
-
-    if !check_and_insert_nonce(now, nonce, issued_at).await {
-        return Err(anyhow!(super::error::Error::RepeatedNonce.to_json()));
+    if is_prod || BACKDOOR_NONCE.contains(&nonce).not() {
+        if !check_and_insert_nonce(now, nonce, issued_at).await {
+            return Err(anyhow!(super::error::Error::RepeatedNonce.to_json()));
+        }
     }
     Ok(())
 }
