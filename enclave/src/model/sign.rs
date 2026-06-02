@@ -9,7 +9,7 @@ use crate::credential::aws::is_debug_mode;
 use crate::credential::common::Usage;
 use crate::ed25519;
 use crate::kms::get_wallet_key_bond;
-use crate::model::{DecryptRequire, EnclaveRequest, validate_nonce_issued_at};
+use crate::model::{Ed25519Title, EnclaveRequest, validate_nonce_issued_at};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Request {
