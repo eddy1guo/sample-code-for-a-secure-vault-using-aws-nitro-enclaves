@@ -12,7 +12,7 @@ use crate::credential::common::Usage;
 use crate::ed25519::{self, ExtractPubkey};
 use crate::functions::now_millis;
 use crate::kms::{call_kms_encrypt, get_wallet_key_bond};
-use crate::model::{ConfirmedKeyBond, DecryptRequire, EnclaveRequest, validate_nonce_issued_at};
+use crate::model::{ConfirmedKeyBond, Ed25519Title, EnclaveRequest, validate_nonce_issued_at};
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Request {
     pub key_bonds: Vec<ConfirmedKeyBond>,
@@ -141,7 +141,7 @@ impl EnclaveRequest<Request> {
                 anyhow!(crate::error::Error::AssertionVerifyFailed.to_json())
             })?;
             wallet_bond.pwd_pubkey = self.request.new_pwd_pubkey.clone();
-            let wallet_pubkey = wallet_bond.wallet_prikey.extract_pubkey()?;
+            let wallet_pubkey = wallet_bond.wallet_prikey.extract_pubkey()?.add_title();
             let plaint_text = wallet_bond.serialize_json()?;
             println!("{},time={}", line!(), now_millis());
             let key_bond_ciphertext = call_kms_encrypt(

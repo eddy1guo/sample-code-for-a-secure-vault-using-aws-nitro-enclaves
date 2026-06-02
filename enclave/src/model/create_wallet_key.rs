@@ -11,7 +11,7 @@ use crate::credential::common::{Usage, WalletKeyBond};
 use crate::ed25519::{self, new_key_pair};
 use crate::error::Error;
 use crate::kms::{call_kms_encrypt, get_tee_client};
-use crate::model::{DecryptRequire, EnclaveRequest, validate_nonce_issued_at};
+use crate::model::{DecryptRequire, Ed25519Title, EnclaveRequest, validate_nonce_issued_at};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Request {
@@ -138,8 +138,8 @@ impl EnclaveRequest<Request> {
         )?;
         println!("file={},line={}", file!(), line!());
         let key_pair = new_key_pair();
-        let wallet_prikey = key_pair.0.encode_bs58();
-        let wallet_pubkey = key_pair.1.encode_bs58();
+        let wallet_prikey = key_pair.0.encode_bs58().add_title();
+        let wallet_pubkey = key_pair.1.encode_bs58().add_title();
         let plaint_text = WalletKeyBond {
             client_platform: client.platform,
             master_device_pubkey: client.pubkey,

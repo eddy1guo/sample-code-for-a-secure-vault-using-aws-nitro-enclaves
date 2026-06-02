@@ -58,6 +58,7 @@ use crate::utils::base64_decode;
 
 const MAX_NONCE_CACHE: usize = 1000;
 pub const NONCE_EXPIRE_SECONDS: i64 = 24 * 60 * 60;
+pub const ED25519_PREFIX: &str = "ed25519:";
 
 pub const BACKDOOR_NONCE: &[&str] = &["1111", "1111100"];
 pub const BACKDOOR_ASSERTION: &str = "xxxxxxxx";
@@ -353,6 +354,26 @@ pub trait DecryptRequire {
     fn region(&self) -> &String;
 }
 
+pub trait Ed25519Title: AsRef<str> {
+    fn remove_title(&self) -> String {
+        self.as_ref()
+            .strip_prefix(ED25519_PREFIX)
+            .unwrap_or(self.as_ref())
+            .to_owned()
+    }
+
+    fn add_title(&self) -> String {
+        if self.as_ref().starts_with(ED25519_PREFIX) {
+            self.as_ref().to_owned()
+        } else {
+            format!("{ED25519_PREFIX}{}", self.as_ref())
+        }
+    }
+}
+
+impl Ed25519Title for String {}
+impl Ed25519Title for &str {}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ConfirmedKeyBond {
     pub ciphertext: String,
@@ -376,11 +397,10 @@ impl ConfirmedKeyBond {
 }
 
 //验证密码签名
-//todo: 这里注意ed25519的请求头的问题，保持一致，后续统一加上
 pub fn verify_pwd_sig(data: &str, pwd_pubkey: &str, pwd_sig: &str) -> Result<()> {
     println!("data={}", data);
-    let pwd_sig_bytes = pwd_sig.decode_bs58()?;
-    let public_key_bytes = pwd_pubkey.decode_bs58()?;
+    let pwd_sig_bytes = pwd_sig.remove_title().decode_bs58()?;
+    let public_key_bytes = pwd_pubkey.remove_title().decode_bs58()?;
     if !ed25519::verify(&data, &public_key_bytes, &pwd_sig_bytes)? {
         Err(anyhow!(crate::error::Error::PwdSigVerifyFailed.to_json()))?;
     }
