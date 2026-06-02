@@ -103,6 +103,7 @@ impl EnclaveRequest<Request> {
     }
 
     pub fn execute(&self) -> Result<Response> {
+        println!("request_data={:#?}", self.request);
         self.validate()?;
 
         tokio::runtime::Runtime::new()?.block_on(validate_nonce_issued_at(

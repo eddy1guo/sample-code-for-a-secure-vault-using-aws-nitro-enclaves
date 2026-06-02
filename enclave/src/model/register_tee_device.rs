@@ -54,6 +54,7 @@ impl EnclaveRequest<Request> {
     }
 
     pub fn execute(&self) -> Result<Response> {
+        println!("request_data={:#?}", self.request);
         tokio::runtime::Runtime::new()?.block_on(validate_nonce_issued_at(
             &self.request.nonce,
             self.request.issued_at,

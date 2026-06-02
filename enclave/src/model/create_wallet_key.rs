@@ -89,6 +89,7 @@ impl EnclaveRequest<Request> {
     }
 
     pub fn execute(&self) -> Result<Response> {
+        println!("request_data={:#?}", self.request);
         tokio::runtime::Runtime::new()?.block_on(validate_nonce_issued_at(
             &self.request.nonce,
             self.request.issued_at,
@@ -100,6 +101,8 @@ impl EnclaveRequest<Request> {
             &self.request.pwd_sig,
         )?;
         println!("file={},line={}", file!(), line!());
+
+        //todo: 看下要怎么处理防止新的密码和旧的密码不一致，或者在应用层处理
 
         //获取当前的设备证明
         let client = get_tee_client(&self, &self.request.device_ciphertext)?;

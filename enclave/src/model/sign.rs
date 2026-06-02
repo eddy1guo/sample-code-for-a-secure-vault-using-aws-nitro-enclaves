@@ -99,6 +99,7 @@ impl EnclaveRequest<Request> {
     }
 
     pub fn execute(&self) -> Result<Response> {
+        println!("request_data={:#?}", self.request);
         self.validate()?;
         println!("file={},line={}", file!(), line!());
 
