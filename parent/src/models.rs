@@ -394,6 +394,8 @@ pub struct CreateWalletKeyRequest {
     pub bind_device_ciphertext: String,
     #[validate(length(min = 1, max = 1000000000))]
     pub bind_device_confirmed_assertion: String,
+    pub master_key_bond_ciphertext: Option<String>,
+    pub master_key_bond_confirmed_assertion: Option<String>,
     pub pwd_pubkey: String,
     pub pwd_sig: String,
     #[validate(length(min = 1, max = 1000000000))]
@@ -448,8 +450,6 @@ pub struct SignWithoutAssertionRequest {
     #[validate(length(min = 1, max = 1000000000))]
     pub key_bond_confirmed_assertion: String,
     pub pwd_sig: String,
-    #[validate(length(min = 1, max = 1000000000))]
-    pub sign_assertion: String,
     #[validate(length(min = 1, max = 1000000000))]
     pub message: String,
     pub issued_at: i64,
