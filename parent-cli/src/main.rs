@@ -61,6 +61,15 @@ const CONFIRM_KEY_BOND_ASSERTION: &str = "LnxoVdHGe+HnCcwS7FCWJecITXf2KlJBoHO7/J
 
 //r#"{"type":"Sign","message": "xxxx","issued_at":1779876890,"nonce":"1111"}"#;
 
+// {"type":"RegisterTeeDevice","issued_at":1779876890,"nonce":"1111"}
+// {"type":"ConfirmTeeDevice","message": "xxxx"}
+// {"type":"CreateWalletKey","message": "xxxx","issued_at":1779876890,"nonce":"1111"}
+// {"type":"ConfirmWalletKey","message": "xxxx"}
+// {"type":"Sign","message": "xxxx","issued_at":1779876890,"nonce":"1111"}
+// {"type":"SignWithoutAssertion","message": "xxxx","issued_at":1779876890,"nonce":"1111"}
+// {"type":"RecoverWallet","issued_at":1779876890,"nonce":"1111"}
+// {"type":"ModifyPassword","issued_at":1779876890,"nonce":"1111"}
+
 // todo: 每次新建的key都需要新的签名太麻烦，后续前两个流程正常走，后续的业务如果需要可以使用固定的assertion
 pub fn register_tee_device_payload() -> String {
     format!(
@@ -106,15 +115,10 @@ pub fn sign_payload(message: &str) -> String {
 }
 
 pub fn sign_without_assertion_payload(message: &str) -> String {
-    //todo:
     format!(
         "{{\"type\":\"SignWithoutAssertion\",\"message\":\"{}\",\"issued_at\":{},\"nonce\":\"{}\"}}",
         message, ISSUED_AT, NONCE
     )
-    // format!(
-    //     "{{\"type\":\"Sign\",\"message\":\"{}\",\"issued_at\":{},\"nonce\":\"{}\"}}",
-    //     message, ISSUED_AT, NONCE
-    // )
 }
 
 pub fn recover_wallet_payload() -> String {
@@ -219,7 +223,6 @@ struct SignWithoutAssertionRequest {
     key_bond_ciphertext: String,
     key_bond_confirmed_assertion: String,
     pwd_sig: String,
-    sign_assertion: String,
     message: String,
     issued_at: i64,
     nonce: String,
@@ -463,13 +466,13 @@ async fn run_basic(client: &Client, base_url: &str) -> Result<()> {
     //5) sign_without_assertion with new_password
     let sign_without_assertion_payload_str =
         sign_without_assertion_payload(&PLACEHOLDER_MESSAGE.as_bytes().encode_bs64());
-    let sign_assertion = generate_tee_assertion(&platform, &sign_without_assertion_payload_str, 1)?;
+    //let sign_assertion = generate_tee_assertion(&platform, &sign_without_assertion_payload_str, 1)?;
     let pwd_sig = sign_with_password(NEW_PASSWORD_SEED, &sign_without_assertion_payload_str)?;
     let sign_without_assertion_request = SignWithoutAssertionRequest {
         key_bond_ciphertext: new_key_bond_ciphertext.clone(),
         key_bond_confirmed_assertion: new_key_bond_confirmed_assertion.clone(),
         pwd_sig,
-        sign_assertion: sign_assertion,
+        //sign_assertion: sign_assertion,
         message: PLACEHOLDER_MESSAGE.as_bytes().encode_bs64(),
         issued_at: ISSUED_AT,
         nonce: NONCE.to_string(),
@@ -632,6 +635,7 @@ fn extract_attestation(response: &ApiResponse) -> Result<String> {
 fn extract_attested_data(response: &ApiResponse) -> Result<Value> {
     let attestation = extract_attestation(response)?;
     let attestation_doc = aws::parse_cose_sign1_view(&attestation.decode_hex()?)?;
+    println!("{:#?}", attestation_doc);
     let payload = attestation_doc
         .payload
         .user_data

@@ -16,7 +16,6 @@ pub struct Request {
     pub key_bond_ciphertext: String,
     pub key_bond_confirmed_assertion: String,
     pub pwd_sig: String,
-    pub sign_assertion: String,
     pub message: String,
     pub issued_at: i64,
     pub nonce: String,
@@ -64,11 +63,6 @@ impl EnclaveRequest<Request> {
     pub fn validate(&self) -> Result<()> {
         if self.request.key_bond_ciphertext.is_empty() {
             println!("vault_id cannot be empty");
-            Err(anyhow!(super::super::error::Error::ParamsInvalid.to_json()))?;
-        }
-
-        if self.request.sign_assertion.is_empty() {
-            println!("in product mode,signature can't be none");
             Err(anyhow!(super::super::error::Error::ParamsInvalid.to_json()))?;
         }
 
@@ -135,14 +129,7 @@ impl EnclaveRequest<Request> {
         )?;
 
         // 和wallet_sign最大的不同就是没有assertion校验，
-        //另外此处也会增加帐号锁定机制，
-        // verify_assertion(
-        //     wallet_bond.client_platform,
-        //     &wallet_bond.app_id,
-        //     &self.request.sign_assertion,
-        //     &wallet_bond.tee_device_pubkey,
-        //     &self.sign_payload(),
-        // )?;
+        //todo: 另外此处也会增加帐号锁定机制，
 
         let wallet_prikey_bytes = wallet_bond.wallet_prikey.decode_bs58().map_err(|e| {
             println!("{:?}", e);
