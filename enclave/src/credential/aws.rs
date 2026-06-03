@@ -74,17 +74,21 @@ pub fn get_attestation_document(user_data: &[u8]) -> Result<Vec<u8>> {
         other => Err(anyhow!("unexpected NSM response: {:?}", other)),
     }
 }
-
+use crate::error::Error;
 pub fn is_debug_mode() -> Result<bool> {
-    let mut cached = NITRO_DEBUG_MODE
-        .lock()
-        .map_err(|_| anyhow!("nitro debug mode cache lock poisoned"))?;
+    let mut cached = NITRO_DEBUG_MODE.lock().map_err(|e| {
+        println!("nitro debug mode cache lock poisoned,{}", e);
+        anyhow!(Error::InternalError.to_json())
+    })?;
 
     if let Some(is_debug) = *cached {
         return Ok(is_debug);
     }
 
-    let is_debug = detect_nitro_debug_mode()?;
+    let is_debug = detect_nitro_debug_mode().map_err(|e| {
+        println!("detect_nitro_debug_mode failed,{}", e);
+        anyhow!(Error::InternalError.to_json())
+    })?;
     *cached = Some(is_debug);
     println!("is_nitro_debug_mode: {} ", is_debug);
     Ok(is_debug)

@@ -15,6 +15,7 @@ impl ErrorType for anyhow::Error {
 #[repr(u32)]
 #[derive(Debug, Clone, Copy, EnumString, Display, Serialize)]
 pub enum Error {
+    InternalError = 1000,
     ParamsInvalid = 1001,
     RepeatedNonce = 1002,
     SigExpired = 1003,
@@ -24,6 +25,7 @@ pub enum Error {
     PwdSigVerifyFailed = 1007,
     KMSEncryptFailed = 1008,
     KMSDecryptFailed = 1009,
+    PasswordDifferentWithMasterKey = 1010,
 }
 
 #[derive(Debug, Serialize, Deserialize)]

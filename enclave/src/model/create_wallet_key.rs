@@ -1,4 +1,4 @@
-use anyhow::{Result, anyhow};
+use anyhow::{Result, anyhow, bail};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 
@@ -10,6 +10,7 @@ use crate::credential::aws::is_debug_mode;
 use crate::credential::common::{Usage, WalletKeyBond};
 use crate::ed25519::{self, new_key_pair};
 use crate::error::Error;
+use crate::kms::get_wallet_key_bond;
 use crate::kms::{call_kms_encrypt, get_tee_client};
 use crate::model::{DecryptRequire, Ed25519Title, EnclaveRequest, validate_nonce_issued_at};
 
@@ -19,6 +20,8 @@ pub struct Request {
     pub device_confirmed_assertion: String,
     pub bind_device_ciphertext: String,
     pub bind_device_confirmed_assertion: String,
+    pub master_key_bond_ciphertext: Option<String>,
+    pub master_key_bond_confirmed_assertion: Option<String>,
     pub pwd_pubkey: String,
     pub pwd_sig: String,
     pub create_key_assertion: String,
@@ -51,7 +54,7 @@ impl EnclaveRequest<Request> {
         serde_json::to_string(&payload).unwrap()
     }
 
-    pub fn confirm_payload(&self, ciphertext: &str) -> String {
+    pub fn device_confirm_payload(&self, ciphertext: &str) -> String {
         #[derive(Serialize)]
         struct Payload {
             r#type: Usage,
@@ -60,6 +63,24 @@ impl EnclaveRequest<Request> {
         let payload = Payload {
             r#type: Usage::ConfirmTeeDevice,
             message: ciphertext.to_owned(),
+        };
+
+        serde_json::to_string(&payload).unwrap()
+    }
+
+    pub fn master_key_bond_confirm_payload(&self, ciphertext: String) -> String {
+        #[derive(Serialize)]
+        struct Payload {
+            r#type: Usage,
+            message: String,
+            issued_at: i64,
+            nonce: String,
+        }
+        let payload = Payload {
+            r#type: Usage::Sign,
+            message: ciphertext,
+            issued_at: self.request.issued_at,
+            nonce: self.request.nonce.clone(),
         };
 
         serde_json::to_string(&payload).unwrap()
@@ -102,7 +123,27 @@ impl EnclaveRequest<Request> {
         )?;
         println!("file={},line={}", file!(), line!());
 
-        //todo: 看下要怎么处理防止新的密码和旧的密码不一致，或者在应用层处理
+        //非强制行为，有应用层决定是否来和master的pwd_pubkey保持一致
+        match (
+            &self.request.master_key_bond_ciphertext,
+            &self.request.master_key_bond_confirmed_assertion,
+        ) {
+            (Some(ciphertext), Some(confirm_assertion)) => {
+                let master_key_bond =
+                    get_wallet_key_bond(&self.credential, &ciphertext, &self.request.region)?;
+                verify_assertion(
+                    master_key_bond.client_platform.clone(),
+                    &master_key_bond.app_id,
+                    &confirm_assertion,
+                    &master_key_bond.master_device_pubkey,
+                    &self.master_key_bond_confirm_payload(ciphertext.clone()),
+                )?;
+                if self.request.pwd_pubkey != master_key_bond.pwd_pubkey {
+                    bail!(Error::PasswordDifferentWithMasterKey.to_json())
+                }
+            }
+            _ => {}
+        };
 
         //获取当前的设备证明
         let client = get_tee_client(&self, &self.request.device_ciphertext)?;
@@ -112,7 +153,7 @@ impl EnclaveRequest<Request> {
             &client.app_id,
             &self.request.device_confirmed_assertion,
             &client.pubkey,
-            &self.confirm_payload(&self.request.device_ciphertext),
+            &self.device_confirm_payload(&self.request.device_ciphertext),
         )?;
         println!("file={},line={}", file!(), line!());
 
@@ -124,7 +165,7 @@ impl EnclaveRequest<Request> {
             &bind_client.app_id,
             &self.request.bind_device_confirmed_assertion,
             &bind_client.pubkey,
-            &self.confirm_payload(&self.request.bind_device_ciphertext),
+            &self.device_confirm_payload(&self.request.bind_device_ciphertext),
         )?;
 
         println!("file={},line={}", file!(), line!());

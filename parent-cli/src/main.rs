@@ -166,6 +166,8 @@ struct CreateWalletKeyRequest {
     device_confirmed_assertion: String,
     bind_device_ciphertext: String,
     bind_device_confirmed_assertion: String,
+    master_key_bond_ciphertext: Option<String>,
+    master_key_bond_confirmed_assertion: Option<String>,
     pwd_pubkey: String,
     pwd_sig: String,
     create_key_assertion: String,
@@ -373,6 +375,8 @@ async fn run_basic(client: &Client, base_url: &str) -> Result<()> {
         bind_device_ciphertext: device_ciphertext.clone(),
         bind_device_confirmed_assertion: CONFIRM_DEVICE_ASSERTION.to_string(),
         create_key_assertion,
+        master_key_bond_ciphertext: None,
+        master_key_bond_confirmed_assertion: None,
     };
 
     let create_response = post_json(

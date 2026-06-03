@@ -1,8 +1,10 @@
 pub mod apple;
 pub mod google;
 
+use anyhow::anyhow;
 use serde_json::json;
 
+use crate::error::Error;
 use crate::{
     codec::{
         bs64::{DecodeBs64, EncodeBs64},
@@ -35,9 +37,17 @@ pub fn verify_assertion(
                 None,
             )
             .map(|x| Some(x))
+            .map_err(|e| {
+                println!("{:?}", e);
+                anyhow!(crate::error::Error::AssertionVerifyFailed.to_json())
+            })
         }
         Platform::Google => {
-            google::verify_assertion_base64(&pubkey_base64, &payload, &assertion_object_base64)?;
+            google::verify_assertion_base64(&pubkey_base64, &payload, &assertion_object_base64)
+                .map_err(|e| {
+                    println!("{:?}", e);
+                    anyhow!(crate::error::Error::AssertionVerifyFailed.to_json())
+                })?;
             Ok(None)
         }
     }
