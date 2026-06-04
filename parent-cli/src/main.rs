@@ -2,9 +2,9 @@ use std::str::FromStr;
 
 use anyhow::{Context, Result, bail};
 use clap::{Parser, Subcommand};
-use enclave_vault::codec::{bs58::EncodeBs58, bs64::EncodeBs64, hex::DecodeHex};
+use enclave_vault::codec::{bs58::EncodeBs58, bs64::EncodeBs64, hex::{DecodeHex, EncodeHex}};
 use enclave_vault::credential::aws;
-use enclave_vault::credential::common::Platform;
+use enclave_vault::credential::common::{Platform, sha256_bytes};
 use enclave_vault::ed25519;
 use enclave_vault::model::ModifyPasswordResponse;
 use reqwest::Client;
@@ -495,6 +495,12 @@ async fn run_basic(client: &Client, base_url: &str) -> Result<()> {
         "sign_without_assertion_response: {:?}",
         sign_without_assertion_response
     );
+    let sign_without_assertion_data: SignResponse =
+        serde_json::from_value(extract_attested_data(&sign_without_assertion_response)?)?;
+    println!(
+        "sign_without_assertion_sig: {}",
+        sign_without_assertion_data.sig
+    );
 
     //6  recovre wallet
     //6.1）new device register
@@ -524,7 +530,7 @@ async fn run_basic(client: &Client, base_url: &str) -> Result<()> {
     println!("{}", device_ciphertext);
     //由于每次device_ciphertext 都会变更，此处使用一个固定结果
     let new_device_ciphertext = FIX_NEW_DEVICE_CIPHERTEXT.to_owned();
-    let confirm_tee_device_payload_str = confirm_tee_device_payload(&device_ciphertext);
+    let confirm_tee_device_payload_str = confirm_tee_device_payload(&new_device_ciphertext);
     println!("{}", confirm_tee_device_payload_str);
     let new_device_confirmed_assertion =
         generate_tee_assertion(&platform, &confirm_tee_device_payload_str, 2)?;
@@ -537,10 +543,11 @@ async fn run_basic(client: &Client, base_url: &str) -> Result<()> {
     let recover_wallet_request = RecoverWalletRequest {
         new_device_ciphertext: new_device_ciphertext.clone(),
         new_device_confirmed_assertion: new_device_confirmed_assertion.clone(),
+        // Keep three entries here to exercise the large-response recovery path.
         key_bonds: vec![ConfirmedKeyBond {
             ciphertext: new_key_bond_ciphertext.clone(),
             confirmed_assertion: new_key_bond_confirmed_assertion.clone(),
-        }],
+        }; 3],
         pwd_sig: pwd_recover_sig.clone(),
         assertion: recover_assertion,
         issued_at: ISSUED_AT,
@@ -558,6 +565,9 @@ async fn run_basic(client: &Client, base_url: &str) -> Result<()> {
     )
     .await?;
     println!("recover_wallet_response: {:?}", recover_wallet_response);
+    let recover_wallet_data: ModifyPasswordResponse =
+        serde_json::from_value(extract_attested_data(&recover_wallet_response)?)?;
+    println!("recover_wallet_data: {:?}", recover_wallet_data);
     //7) (option),  钱包恢复之后使用sign接口确认一下
 
     Ok(())
@@ -637,16 +647,21 @@ fn extract_attestation(response: &ApiResponse) -> Result<String> {
 }
 
 fn extract_attested_data(response: &ApiResponse) -> Result<Value> {
+    let data = response
+        .fields
+        .get("data")
+        .cloned()
+        .context("response did not contain `data` field")?;
     let attestation = extract_attestation(response)?;
     let attestation_doc = aws::parse_cose_sign1_view(&attestation.decode_hex()?)?;
     println!("{:#?}", attestation_doc);
-    let payload = attestation_doc
+    let payload_digest = attestation_doc
         .payload
         .user_data
         .context("attestation payload did not contain user_data")?;
-    let attested_json = serde_json::Value::from_str(&payload)?;
-    attested_json
-        .get("data")
-        .cloned()
-        .context("attested payload did not contain `data`")
+    let actual_digest = sha256_bytes(data.to_string().as_bytes()).encode_hex();
+    if payload_digest != actual_digest {
+        bail!("attestation payload digest mismatch")
+    }
+    Ok(data)
 }

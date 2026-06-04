@@ -9,6 +9,7 @@ use std::thread;
 
 use anyhow::{Error, Result, anyhow, bail};
 use enclave_vault::credential::aws::get_attestation_document;
+use enclave_vault::credential::common::sha256_bytes;
 use enclave_vault::error::ErrorType;
 use enclave_vault::model::{ModifyPasswordRequest, RecoverWalletRequest, SignRequest};
 use enclave_vault::models::{CreateWalletKeyRequest, EnclaveAction, TeeClientRegisterRequest};
@@ -121,11 +122,16 @@ fn handle_client<S: Read + Write>(mut stream: S) -> Result<()> {
 
             println!("[enclave] sending response to parent: payload {}", payload);
 
-            let attestation_document = get_attestation_document(payload.as_bytes()).unwrap();
-            let final_fields = [(
-                "attestation".to_string(),
-                hex::encode(&attestation_document).into(),
-            )]
+            let payload_digest = hex::encode(sha256_bytes(payload.as_bytes()));
+            let attestation_document = get_attestation_document(payload_digest.as_bytes())
+                .map_err(|err| anyhow!("failed to get attestation document: {err}"))?;
+            let final_fields = [
+                ("data".to_string(), response),
+                (
+                    "attestation".to_string(),
+                    hex::encode(&attestation_document).into(),
+                ),
+            ]
             .into();
 
             (final_fields, None)
