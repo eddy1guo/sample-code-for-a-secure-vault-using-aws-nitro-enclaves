@@ -73,9 +73,7 @@ where
 {
     println!("{label}");
     let data = f()?;
-    Ok(serde_json::json!({
-        "data": serde_json::to_value(data)?
-    }))
+    Ok(serde_json::to_value(data)?)
 }
 
 #[inline]

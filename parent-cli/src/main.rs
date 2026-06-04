@@ -2,7 +2,11 @@ use std::str::FromStr;
 
 use anyhow::{Context, Result, bail};
 use clap::{Parser, Subcommand};
-use enclave_vault::codec::{bs58::EncodeBs58, bs64::EncodeBs64, hex::{DecodeHex, EncodeHex}};
+use enclave_vault::codec::{
+    bs58::EncodeBs58,
+    bs64::EncodeBs64,
+    hex::{DecodeHex, EncodeHex},
+};
 use enclave_vault::credential::aws;
 use enclave_vault::credential::common::{Platform, sha256_bytes};
 use enclave_vault::ed25519;
@@ -544,10 +548,13 @@ async fn run_basic(client: &Client, base_url: &str) -> Result<()> {
         new_device_ciphertext: new_device_ciphertext.clone(),
         new_device_confirmed_assertion: new_device_confirmed_assertion.clone(),
         // Keep three entries here to exercise the large-response recovery path.
-        key_bonds: vec![ConfirmedKeyBond {
-            ciphertext: new_key_bond_ciphertext.clone(),
-            confirmed_assertion: new_key_bond_confirmed_assertion.clone(),
-        }; 3],
+        key_bonds: vec![
+            ConfirmedKeyBond {
+                ciphertext: new_key_bond_ciphertext.clone(),
+                confirmed_assertion: new_key_bond_confirmed_assertion.clone(),
+            };
+            3
+        ],
         pwd_sig: pwd_recover_sig.clone(),
         assertion: recover_assertion,
         issued_at: ISSUED_AT,
@@ -652,6 +659,7 @@ fn extract_attested_data(response: &ApiResponse) -> Result<Value> {
         .get("data")
         .cloned()
         .context("response did not contain `data` field")?;
+    println!("data={}", data);
     let attestation = extract_attestation(response)?;
     let attestation_doc = aws::parse_cose_sign1_view(&attestation.decode_hex()?)?;
     println!("{:#?}", attestation_doc);
