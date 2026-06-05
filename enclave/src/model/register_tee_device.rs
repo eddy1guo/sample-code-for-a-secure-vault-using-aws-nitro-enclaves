@@ -22,6 +22,7 @@ pub struct Request {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Response {
     pub client_ciphertext: String,
+    pub tee_device_pubkey: String,
 }
 
 impl EnclaveRequest<Request> {
@@ -68,7 +69,7 @@ impl EnclaveRequest<Request> {
         )?;
         let tee_client = TeeClient {
             platform: self.request.platform.clone(),
-            pubkey,
+            pubkey: pubkey.clone(),
             app_id,
             usage: Usage::RegisterTeeDevice,
         }
@@ -82,6 +83,9 @@ impl EnclaveRequest<Request> {
         )
         .map(|x| x.encode_hex())
         .map_err(|err| anyhow!("failed to call KMS:call_kms_encrypt: {err:?}"))?;
-        Ok(Response { client_ciphertext })
+        Ok(Response {
+            client_ciphertext,
+            tee_device_pubkey: pubkey,
+        })
     }
 }
