@@ -9,7 +9,7 @@ use crate::credential::aws::is_debug_mode;
 use crate::credential::common::Usage;
 use crate::ed25519;
 use crate::kms::get_wallet_key_bond;
-use crate::model::{DecryptRequire, EnclaveRequest, validate_nonce_issued_at};
+use crate::model::{Ed25519Title, EnclaveRequest, validate_nonce_issued_at};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Request {
@@ -131,10 +131,14 @@ impl EnclaveRequest<Request> {
         // 和wallet_sign最大的不同就是没有assertion校验，
         //todo: 另外此处也会增加帐号锁定机制，
 
-        let wallet_prikey_bytes = wallet_bond.wallet_prikey.decode_bs58().map_err(|e| {
-            println!("{:?}", e);
-            anyhow!(super::super::error::Error::ParamsInvalid.to_json())
-        })?;
+        let wallet_prikey_bytes = wallet_bond
+            .wallet_prikey
+            .remove_title()
+            .decode_bs58()
+            .map_err(|e| {
+                println!("{:?}", e);
+                anyhow!(super::super::error::Error::ParamsInvalid.to_json())
+            })?;
         println!(
             "[enclave] decrypted KMS secret key {}",
             wallet_prikey_bytes.encode_bs58()
