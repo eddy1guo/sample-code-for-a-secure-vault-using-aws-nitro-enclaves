@@ -46,7 +46,7 @@ use tokio::sync::RwLock;
 use zeroize::ZeroizeOnDrop;
 
 use crate::codec::bs58::DecodeBs58;
-use crate::codec::hex::DecodeHex;
+use crate::codec::hex::{DecodeHex, EncodeHex};
 use crate::constants::{ENCODING_BINARY, ENCODING_HEX, MAX_FIELDS, P256, P384, P521};
 use crate::credential::aws::{get_attestation_document, is_debug_mode};
 use crate::credential::common::Usage;
@@ -66,6 +66,28 @@ pub const BACKDOOR_ISSUED_AT: &[i64] = &[1779876890, 1779876990];
 
 static NONCE_CACHE: LazyLock<RwLock<HashMap<String, i64>>> =
     LazyLock::new(|| RwLock::new(HashMap::new()));
+
+const FAILURE_SWEEP_INTERVAL_SECONDS: i64 = 10 * 60;
+const FAILURE_WINDOW_10_MINUTES: i64 = 10 * 60;
+const FAILURE_WINDOW_60_MINUTES: i64 = 60 * 60;
+const FAILURE_WINDOW_24_HOURS: i64 = 24 * 60 * 60;
+const FAILURE_WINDOW_1_WEEK: i64 = 7 * 24 * 60 * 60;
+
+const FAILURE_WINDOWS: &[(i64, usize)] = &[
+    (FAILURE_WINDOW_10_MINUTES, 2),
+    (FAILURE_WINDOW_60_MINUTES, 3),
+    (FAILURE_WINDOW_24_HOURS, 4),
+    (FAILURE_WINDOW_1_WEEK, 8),
+];
+
+#[derive(Default)]
+struct FailureCache {
+    accounts: HashMap<String, Vec<i64>>,
+    last_sweep_at: i64,
+}
+
+static FAILED_PWD_SIG_CACHE: LazyLock<Mutex<FailureCache>> =
+    LazyLock::new(|| Mutex::new(FailureCache::default()));
 
 pub async fn check_and_insert_nonce(now: i64, nonce: &str, issued_at: i64) -> bool {
     let mut map = NONCE_CACHE.write().await;
@@ -95,6 +117,86 @@ pub async fn validate_nonce_issued_at(nonce: &str, issued_at: i64) -> Result<()>
         }
     }
     Ok(())
+}
+
+fn account_lock_key(app_id: &str, pwd_pubkey: &str) -> String {
+    crate::credential::common::sha256_bytes(format!("{app_id}:{pwd_pubkey}").as_bytes())
+        .encode_hex()
+}
+
+fn prune_failures(attempts: &mut Vec<i64>, now: i64) {
+    attempts.retain(|ts| now.saturating_sub(*ts) <= FAILURE_WINDOW_1_WEEK);
+}
+
+fn is_locked_attempts(attempts: &[i64], now: i64) -> bool {
+    FAILURE_WINDOWS.iter().any(|(window_secs, limit)| {
+        attempts
+            .iter()
+            .filter(|ts| now.saturating_sub(**ts) <= *window_secs)
+            .count()
+            >= *limit
+    })
+}
+
+fn with_failure_cache<T>(f: impl FnOnce(&mut FailureCache) -> Result<T>) -> Result<T> {
+    let mut cache = FAILED_PWD_SIG_CACHE.lock().map_err(|e| {
+        println!("failed password cache lock poisoned,{}", e);
+        anyhow!(crate::error::Error::InternalError.to_json())
+    })?;
+    f(&mut cache)
+}
+
+fn maybe_sweep_failure_cache(cache: &mut FailureCache, now: i64) {
+    if now.saturating_sub(cache.last_sweep_at) < FAILURE_SWEEP_INTERVAL_SECONDS {
+        return;
+    }
+
+    cache.accounts.retain(|_, attempts| {
+        prune_failures(attempts, now);
+        !attempts.is_empty()
+    });
+    cache.last_sweep_at = now;
+}
+
+fn is_account_locked(account_key: &str, now: i64) -> Result<bool> {
+    with_failure_cache(|cache| {
+        maybe_sweep_failure_cache(cache, now);
+
+        let locked = match cache.accounts.get_mut(account_key) {
+            Some(attempts) => {
+                prune_failures(attempts, now);
+                !attempts.is_empty() && is_locked_attempts(attempts, now)
+            }
+            None => false,
+        };
+
+        if cache
+            .accounts
+            .get(account_key)
+            .is_some_and(|attempts| attempts.is_empty())
+        {
+            cache.accounts.remove(account_key);
+        }
+
+        Ok(locked)
+    })
+}
+
+fn record_failed_pwd_sig(account_key: &str, now: i64) -> Result<bool> {
+    with_failure_cache(|cache| {
+        maybe_sweep_failure_cache(cache, now);
+        let attempts = cache.accounts.entry(account_key.to_owned()).or_default();
+        prune_failures(attempts, now);
+        attempts.push(now);
+        Ok(is_locked_attempts(attempts, now))
+    })
+}
+
+fn clear_failed_pwd_sig(account_key: &str) -> Result<()> {
+    with_failure_cache(|cache| {
+        cache.accounts.remove(account_key);
+        Ok(())
+    })
 }
 
 #[derive(Clone, Serialize, Deserialize, ZeroizeOnDrop)]
@@ -405,4 +507,116 @@ pub fn verify_pwd_sig(data: &str, pwd_pubkey: &str, pwd_sig: &str) -> Result<()>
         Err(anyhow!(crate::error::Error::PwdSigVerifyFailed.to_json()))?;
     }
     Ok(())
+}
+
+pub fn verify_pwd_sig_with_lock(
+    app_id: &str,
+    data: &str,
+    pwd_pubkey: &str,
+    pwd_sig: &str,
+) -> Result<()> {
+    let now = now_secs();
+    let account_key = account_lock_key(app_id, pwd_pubkey);
+    if is_account_locked(&account_key, now)? {
+        return Err(anyhow!(crate::error::Error::WalletIsLocked.to_json()));
+    }
+
+    if let Err(err) = verify_pwd_sig(data, pwd_pubkey, pwd_sig) {
+        if record_failed_pwd_sig(&account_key, now)? {
+            return Err(anyhow!(crate::error::Error::WalletIsLocked.to_json()));
+        }
+        return Err(err);
+    }
+
+    clear_failed_pwd_sig(&account_key)?;
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        FAILURE_WINDOW_1_WEEK, FAILURE_WINDOW_10_MINUTES, FAILURE_WINDOW_24_HOURS,
+        FAILURE_WINDOW_60_MINUTES, ED25519_PREFIX, Ed25519Title, is_locked_attempts,
+        prune_failures,
+    };
+
+    #[test]
+    fn remove_title_keeps_plain_value() {
+        let value = "plain-bs58-pubkey";
+        assert_eq!(value.remove_title(), value);
+    }
+
+    #[test]
+    fn remove_title_strips_ed25519_prefix() {
+        let value = format!("{ED25519_PREFIX}plain-bs58-pubkey");
+        assert_eq!(value.remove_title(), "plain-bs58-pubkey");
+    }
+
+    #[test]
+    fn add_title_keeps_prefixed_value() {
+        let value = format!("{ED25519_PREFIX}plain-bs58-pubkey");
+        assert_eq!(value.add_title(), value);
+    }
+
+    #[test]
+    fn add_title_adds_prefix_for_plain_value() {
+        let value = "plain-bs58-pubkey";
+        assert_eq!(value.add_title(), format!("{ED25519_PREFIX}{value}"));
+    }
+
+    #[test]
+    fn locks_after_two_failures_in_ten_minutes() {
+        let now = 10_000;
+        let attempts = vec![now - 60, now];
+        assert!(is_locked_attempts(&attempts, now));
+    }
+
+    #[test]
+    fn locks_after_three_failures_in_sixty_minutes() {
+        let now = 20_000;
+        let attempts = vec![
+            now - FAILURE_WINDOW_10_MINUTES - 1,
+            now - 30 * 60,
+            now,
+        ];
+        assert!(is_locked_attempts(&attempts, now));
+    }
+
+    #[test]
+    fn locks_after_four_failures_in_twenty_four_hours() {
+        let now = 30_000;
+        let attempts = vec![
+            now - FAILURE_WINDOW_60_MINUTES - 1,
+            now - 12 * 60 * 60,
+            now - 2 * 60 * 60,
+            now,
+        ];
+        assert!(is_locked_attempts(&attempts, now));
+    }
+
+    #[test]
+    fn locks_after_eight_failures_in_one_week() {
+        let now = 40_000;
+        let attempts = (0..8).map(|offset| now - offset * 100).collect::<Vec<_>>();
+        assert!(is_locked_attempts(&attempts, now));
+    }
+
+    #[test]
+    fn old_failures_are_pruned_after_one_week() {
+        let now = 50_000;
+        let mut attempts = vec![now - FAILURE_WINDOW_1_WEEK - 1, now - 1];
+        prune_failures(&mut attempts, now);
+        assert_eq!(attempts, vec![now - 1]);
+    }
+
+    #[test]
+    fn does_not_lock_when_failures_are_outside_all_windows() {
+        let now = FAILURE_WINDOW_24_HOURS * 2;
+        let attempts = vec![
+            now - FAILURE_WINDOW_24_HOURS - 1,
+            now - FAILURE_WINDOW_60_MINUTES - 1,
+            now - FAILURE_WINDOW_10_MINUTES - 1,
+        ];
+        assert!(!is_locked_attempts(&attempts, now));
+    }
 }

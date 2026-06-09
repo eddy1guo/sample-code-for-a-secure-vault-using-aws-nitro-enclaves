@@ -134,7 +134,8 @@ impl EnclaveRequest<Request> {
         )?;
 
         //验证密码签名
-        super::verify_pwd_sig(
+        super::verify_pwd_sig_with_lock(
+            &wallet_bond.app_id,
             &self.sign_payload(),
             &wallet_bond.pwd_pubkey,
             &self.request.pwd_sig,

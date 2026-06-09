@@ -112,11 +112,13 @@ impl EnclaveRequest<Request> {
         println!("file={},line={}", file!(), line!());
 
         //验证密码签名
-        super::verify_pwd_sig(
+        super::verify_pwd_sig_with_lock(
+            &wallet_bond.app_id,
             &self.sign_payload(),
             &wallet_bond.pwd_pubkey,
             &self.request.pwd_sig,
         )?;
+
         println!("file={},line={}", file!(), line!());
 
         //对key_bond_confirmed_assertion的校验
@@ -129,8 +131,6 @@ impl EnclaveRequest<Request> {
         )?;
 
         // 和wallet_sign最大的不同就是没有assertion校验，
-        //todo: 另外此处也会增加帐号锁定机制，
-
         let wallet_prikey_bytes = wallet_bond
             .wallet_prikey
             .remove_title()
