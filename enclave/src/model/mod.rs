@@ -68,6 +68,7 @@ static NONCE_CACHE: LazyLock<RwLock<HashMap<String, i64>>> =
     LazyLock::new(|| RwLock::new(HashMap::new()));
 
 const FAILURE_SWEEP_INTERVAL_SECONDS: i64 = 10 * 60;
+const MAX_FAILED_PWD_SIG_ACCOUNTS: usize = 100_000;
 const FAILURE_WINDOW_10_MINUTES: i64 = 10 * 60;
 const FAILURE_WINDOW_60_MINUTES: i64 = 60 * 60;
 const FAILURE_WINDOW_24_HOURS: i64 = 24 * 60 * 60;
@@ -158,6 +159,19 @@ fn maybe_sweep_failure_cache(cache: &mut FailureCache, now: i64) {
     cache.last_sweep_at = now;
 }
 
+fn evict_oldest_failure_account(cache: &mut FailureCache) {
+    let oldest_account_key = cache
+        .accounts
+        .iter()
+        .filter_map(|(account_key, attempts)| attempts.last().map(|ts| (account_key, *ts)))
+        .min_by_key(|(_, ts)| *ts)
+        .map(|(account_key, _)| account_key.clone());
+
+    if let Some(account_key) = oldest_account_key {
+        cache.accounts.remove(&account_key);
+    }
+}
+
 fn is_account_locked(account_key: &str, now: i64) -> Result<bool> {
     with_failure_cache(|cache| {
         maybe_sweep_failure_cache(cache, now);
@@ -185,6 +199,11 @@ fn is_account_locked(account_key: &str, now: i64) -> Result<bool> {
 fn record_failed_pwd_sig(account_key: &str, now: i64) -> Result<bool> {
     with_failure_cache(|cache| {
         maybe_sweep_failure_cache(cache, now);
+        if !cache.accounts.contains_key(account_key)
+            && cache.accounts.len() >= MAX_FAILED_PWD_SIG_ACCOUNTS
+        {
+            evict_oldest_failure_account(cache);
+        }
         let attempts = cache.accounts.entry(account_key.to_owned()).or_default();
         prune_failures(attempts, now);
         attempts.push(now);
@@ -510,13 +529,14 @@ pub fn verify_pwd_sig(data: &str, pwd_pubkey: &str, pwd_sig: &str) -> Result<()>
 }
 
 pub fn verify_pwd_sig_with_lock(
-    app_id: &str,
+    master_device_key: &str,
     data: &str,
     pwd_pubkey: &str,
     pwd_sig: &str,
 ) -> Result<()> {
     let now = now_secs();
-    let account_key = account_lock_key(app_id, pwd_pubkey);
+    // master_device_key + pwd_pubkey 作为key，隔离不同帐号相同pwd_pubkey的影响
+    let account_key = account_lock_key(master_device_key, pwd_pubkey);
     if is_account_locked(&account_key, now)? {
         return Err(anyhow!(crate::error::Error::WalletIsLocked.to_json()));
     }
@@ -535,9 +555,9 @@ pub fn verify_pwd_sig_with_lock(
 #[cfg(test)]
 mod tests {
     use super::{
-        FAILURE_WINDOW_1_WEEK, FAILURE_WINDOW_10_MINUTES, FAILURE_WINDOW_24_HOURS,
-        FAILURE_WINDOW_60_MINUTES, ED25519_PREFIX, Ed25519Title, is_locked_attempts,
-        prune_failures,
+        ED25519_PREFIX, Ed25519Title, FAILURE_WINDOW_1_WEEK, FAILURE_WINDOW_10_MINUTES,
+        FAILURE_WINDOW_24_HOURS, FAILURE_WINDOW_60_MINUTES, FailureCache,
+        evict_oldest_failure_account, is_locked_attempts, prune_failures,
     };
 
     #[test]
@@ -574,11 +594,7 @@ mod tests {
     #[test]
     fn locks_after_three_failures_in_sixty_minutes() {
         let now = 20_000;
-        let attempts = vec![
-            now - FAILURE_WINDOW_10_MINUTES - 1,
-            now - 30 * 60,
-            now,
-        ];
+        let attempts = vec![now - FAILURE_WINDOW_10_MINUTES - 1, now - 30 * 60, now];
         assert!(is_locked_attempts(&attempts, now));
     }
 
@@ -618,5 +634,17 @@ mod tests {
             now - FAILURE_WINDOW_10_MINUTES - 1,
         ];
         assert!(!is_locked_attempts(&attempts, now));
+    }
+
+    #[test]
+    fn evicts_oldest_account_when_capacity_is_exceeded() {
+        let mut cache = FailureCache::default();
+        cache.accounts.insert("old".to_owned(), vec![100]);
+        cache.accounts.insert("new".to_owned(), vec![200]);
+
+        evict_oldest_failure_account(&mut cache);
+
+        assert!(!cache.accounts.contains_key("old"));
+        assert!(cache.accounts.contains_key("new"));
     }
 }

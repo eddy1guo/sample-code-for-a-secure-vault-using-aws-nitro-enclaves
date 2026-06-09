@@ -123,7 +123,7 @@ impl EnclaveRequest<Request> {
         )?;
         println!("file={},line={}", file!(), line!());
 
-        //非强制行为，有应用层决定是否来和master的pwd_pubkey保持一致
+        //非强制行为，有应用层决定是否来和master的pwd_pubkey保持一致,这样体验更好，跳过也不影响安全
         match (
             &self.request.master_key_bond_ciphertext,
             &self.request.master_key_bond_confirmed_assertion,
@@ -183,6 +183,7 @@ impl EnclaveRequest<Request> {
         let wallet_pubkey = key_pair.1.encode_bs58().add_title();
         let plaint_text = WalletKeyBond {
             client_platform: client.platform,
+            //create_key的几个场景（帐号注册、创建子帐号、为从设备创建key，新换主、从换主），该值都是主设备
             master_device_pubkey: client.pubkey,
             tee_device_pubkey: bind_client.pubkey,
             pwd_pubkey: self.request.pwd_pubkey.clone(),

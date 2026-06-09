@@ -133,7 +133,7 @@ impl EnclaveRequest<Request> {
                 wallet_bond.client_platform.clone(),
                 &wallet_bond.app_id,
                 &bond.confirmed_assertion,
-                &wallet_bond.master_device_pubkey,
+                &wallet_bond.tee_device_pubkey,
                 &bond.confirm_payload(),
             )
             .map_err(|e| {

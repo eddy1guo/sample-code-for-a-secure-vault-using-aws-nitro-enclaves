@@ -129,7 +129,7 @@ impl EnclaveRequest<Request> {
             wallet_bond.client_platform.clone(),
             &wallet_bond.app_id,
             &self.request.key_bond_confirmed_assertion,
-            &wallet_bond.master_device_pubkey,
+            &wallet_bond.tee_device_pubkey,
             &self.confirm_payload(),
         )?;
         println!("file={},line={}", file!(), line!());

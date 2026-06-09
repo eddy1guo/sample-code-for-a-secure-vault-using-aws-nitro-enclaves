@@ -16,6 +16,8 @@ pub struct Request {
     pub key_bond_ciphertext: String,
     pub key_bond_confirmed_assertion: String,
     pub pwd_sig: String,
+    //todo: 防止服务侧恶意撞击导致锁定所有用户，这里应该要有assertion
+    // pub new_device_sign_assertion: String,
     pub message: String,
     pub issued_at: i64,
     pub nonce: String,
@@ -113,7 +115,7 @@ impl EnclaveRequest<Request> {
 
         //验证密码签名
         super::verify_pwd_sig_with_lock(
-            &wallet_bond.app_id,
+            &wallet_bond.master_device_pubkey,
             &self.sign_payload(),
             &wallet_bond.pwd_pubkey,
             &self.request.pwd_sig,
