@@ -141,7 +141,11 @@ impl EnclaveRequest<Request> {
                 anyhow!(crate::error::Error::AssertionVerifyFailed.to_json())
             })?;
             wallet_bond.pwd_pubkey = self.request.new_pwd_pubkey.clone();
-            let wallet_pubkey = wallet_bond.wallet_prikey.extract_pubkey()?.add_title();
+            let wallet_pubkey = wallet_bond
+                .wallet_prikey
+                .remove_title()
+                .extract_pubkey()?
+                .add_title();
             let plaint_text = wallet_bond.serialize_json()?;
             println!("{},time={}", line!(), now_millis());
             let key_bond_ciphertext = call_kms_encrypt(
