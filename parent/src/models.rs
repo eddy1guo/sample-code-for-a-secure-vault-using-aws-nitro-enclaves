@@ -386,6 +386,7 @@ pub struct ConfirmedKeyBond {
 
 #[derive(Debug, Clone, Serialize, Deserialize, Validate)]
 pub struct CreateWalletKeyRequest {
+    pub user_id: u64,
     #[validate(length(min = 1, max = 1000000000))]
     pub device_ciphertext: String,
     #[validate(length(min = 1, max = 1000000000))]
