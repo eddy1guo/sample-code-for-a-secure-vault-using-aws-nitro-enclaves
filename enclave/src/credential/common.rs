@@ -21,6 +21,8 @@ pub struct TeeClient {
 
 #[derive(Deserialize, Serialize, Debug, Clone, PartialEq, Eq)]
 pub struct WalletKeyBond {
+    // 无链user_id
+    pub user_id: u64,
     ///
     pub client_platform: Platform,
     // app package name

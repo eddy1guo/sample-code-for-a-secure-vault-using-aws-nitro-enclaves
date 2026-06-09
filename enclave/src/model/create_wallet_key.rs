@@ -16,6 +16,7 @@ use crate::model::{DecryptRequire, Ed25519Title, EnclaveRequest, validate_nonce_
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Request {
+    pub user_id: u64,
     pub device_ciphertext: String,
     pub device_confirmed_assertion: String,
     pub bind_device_ciphertext: String,
@@ -182,6 +183,7 @@ impl EnclaveRequest<Request> {
         let wallet_prikey = key_pair.0.encode_bs58().add_title();
         let wallet_pubkey = key_pair.1.encode_bs58().add_title();
         let plaint_text = WalletKeyBond {
+            user_id: self.request.user_id,
             client_platform: client.platform,
             //create_key的几个场景（帐号注册、创建子帐号、为从设备创建key，新换主、从换主），该值都是主设备
             master_device_pubkey: client.pubkey,

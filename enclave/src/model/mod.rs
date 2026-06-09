@@ -120,8 +120,8 @@ pub async fn validate_nonce_issued_at(nonce: &str, issued_at: i64) -> Result<()>
     Ok(())
 }
 
-fn account_lock_key(app_id: &str, pwd_pubkey: &str) -> String {
-    crate::credential::common::sha256_bytes(format!("{app_id}:{pwd_pubkey}").as_bytes())
+fn account_lock_key(user_id: u64, pwd_pubkey: &str) -> String {
+    crate::credential::common::sha256_bytes(format!("{user_id}:{pwd_pubkey}").as_bytes())
         .encode_hex()
 }
 
@@ -529,14 +529,14 @@ pub fn verify_pwd_sig(data: &str, pwd_pubkey: &str, pwd_sig: &str) -> Result<()>
 }
 
 pub fn verify_pwd_sig_with_lock(
-    master_device_key: &str,
+    user_id: u64,
     data: &str,
     pwd_pubkey: &str,
     pwd_sig: &str,
 ) -> Result<()> {
     let now = now_secs();
     // master_device_key + pwd_pubkey 作为key，隔离不同帐号相同pwd_pubkey的影响
-    let account_key = account_lock_key(master_device_key, pwd_pubkey);
+    let account_key = account_lock_key(user_id, pwd_pubkey);
     if is_account_locked(&account_key, now)? {
         return Err(anyhow!(crate::error::Error::WalletIsLocked.to_json()));
     }
