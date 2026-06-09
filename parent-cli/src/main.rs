@@ -2,15 +2,19 @@ use std::str::FromStr;
 
 use anyhow::{Context, Result, bail};
 use clap::{Parser, Subcommand};
-use enclave_vault::codec::{
-    bs58::EncodeBs58,
-    bs64::EncodeBs64,
-    hex::{DecodeHex, EncodeHex},
-};
 use enclave_vault::credential::aws;
 use enclave_vault::credential::common::{Platform, sha256_bytes};
 use enclave_vault::ed25519;
+use enclave_vault::error::Error as EnclaveError;
 use enclave_vault::model::ModifyPasswordResponse;
+use enclave_vault::{
+    codec::{
+        bs58::EncodeBs58,
+        bs64::EncodeBs64,
+        hex::{DecodeHex, EncodeHex},
+    },
+    functions::now_millis,
+};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -46,10 +50,10 @@ const GOOGLE_ATTESTATION: [&str; 5] = [
 const FIX_DEVICE_CIPHERTEXT: &str = "0102020078b745c66ff477962a0c7936db47664e72366aea22ffbe5c791a8b8de1d273e9d701bec18902886bdfb420c6e57eddfb3695000001443082014006092a864886f70d010706a08201313082012d0201003082012606092a864886f70d010701301e060960864801650304012e3011040c0fdff1d96e95dc283b814d480201108081f8c319d95637289019b1aae29bc8483de07f4c0eba0411260dde108d21e0b13b53ca74cd1d4b6d58a1891452f3cf1b73970334402aa7c9c8959ec60cb5e0e2f9cdf19a49320fcf607c5aee10fb7baabb1f13c86c789dcc13bdc00a88bd049452c42272df2a3b9465ea503c254c5d1dcc797e8a0f9033f0099a549f6416947867712200c30114d932b9aef28f1a05f1867225d4733a3dea7d8d8713e6efa36a701c9490d26366b9632057d49f79c5699459fd71b6ae43d674aa570a9e9f25fd592e9623fc2046a7aac30290ab2867db94c63915e7070592e1c464c506b1b89e3007ffa2a1313f3cc6fd69bb40b943f7c0eecbb14cfb269fe8db";
 const FIX_NEW_DEVICE_CIPHERTEXT: &str = "0102020078b745c66ff477962a0c7936db47664e72366aea22ffbe5c791a8b8de1d273e9d7014ac3857105be2544f2d723bbb2a35792000001443082014006092a864886f70d010706a08201313082012d0201003082012606092a864886f70d010701301e060960864801650304012e3011040cf1cc21aa19917102b63795b00201108081f8a1d92e102106d4dab11bf7e56d400ba91436b5938d862ee4989797038c40886dc845e022df197dd3391c5c64df15a27faf65fee055f6228b6dbd02c806cac567e3dc5b1161fdf1cbf6dc3ed99adb61f9d1265e476907d79d62dacc6d25e6f332e25c6784c6e1e04b93488b90e61be93758a2f2a2384b6ac69ea4fa05a973cc3acda6df32afa0cf68af04a9ac193ed7f70251bf0a8a38ed08a63d25ac7e18885327f1717a840c73d2db570a39b0d68ac22ce30faaf17cefa78df6caa8e3f02764cf1283fb3c1497f2ddb512490c545db16744f1a072b136839b6832e0169cfa070ef0ded4034e792331d6e1eaf560dd301a61da6d5e2f075f";
 
-const FIX_KEY_BOND_CIPHERTEXT: &str = "0102020078b745c66ff477962a0c7936db47664e72366aea22ffbe5c791a8b8de1d273e9d701b387059a1e649db8e764e314ca6e0b24000002a03082029c06092a864886f70d010706a082028d308202890201003082028206092a864886f70d010701301e060960864801650304012e3011040c0b2385272435118ed332eb6d02011080820253b5f3bf4fa355fdb0e1d54865df052736484877c4cdd5ccfbc87480bec13b051e4e49024efb6c7b37545ab6bc425ccda9b14d8b691ecbf6a374316ce2331de30579e99b8733b432d02eb3500934d30efdf30fe190479edc75794e5bbc556fa26d6df7025cabc16d3d33eb9768f7bd6836dd7f4f5714b3f0d41969c1dbbf36437ec80909a8482f22cfc54270b692b3fc7d2dea1a590385832ba9bb28fb8e157d11462d3482a88602dab9891d1b8e9a03e4396ea4469f65a3ba8f5fce56cce55b144926fc6334cc4c7993d17f5655c55fc5a9dbab0e3024f4c2b52c81379a3493a4461e256ad36de16512cb38d50efcab9a521f10b43cd26fc017c35b6ebf828dc0dff7729b38db8e9cd6340f2555fd3e8db0515b1a143886da55b5c33eb3f90da48938d6d7a1e91bc3b6f6d4188e9c15a0d7e812e9b0f6764a558ab0d1714e114008c8d31d954c0972de7ab4f8addd2923527a541bd6a230b83413f47d07108c58c6a9387aea507500051c748fd79f3ffc3133db26184f2625624af0a24edfffb5cecbfd29db7bf8d390ada90a49f6be5d96cdd160971fcbbb327452363ea2013a620b6493158bc289b383a30117e36deb5438e6804a87ddf8982b0bcea9dabc9c14e43e7733ba19a0f00acc78877497508f54bebc73c700e6a1a8bc4993129e78a6c82ccfa812691e3866ee89c5be98a0bf29a93a60ee6dcde8fa91dd1145efe0d322c0af6892dfe9eddaff76611179c810a455566a58a511cd872b3c5326853f36b821d83306c9a2cb0fa026bd56b0214b302b74b87821409bd0b3b8cfc993397b5f47bd090c088b511d9dc63b5b1899e4f8fe";
+const FIX_KEY_BOND_CIPHERTEXT: &str = "0102020078b745c66ff477962a0c7936db47664e72366aea22ffbe5c791a8b8de1d273e9d701842c1780c5720e0f15df9a4427492409000002c0308202bc06092a864886f70d010706a08202ad308202a9020100308202a206092a864886f70d010701301e060960864801650304012e3011040c5dc3e77f97a48a18ebd84c31020110808202734865fcbe6ce7a36d951b2d31f04726e8067460109f2f5f04a6136e89d9d0b6e09de2ecb1911c857781130a1a91b18feaa18b64767807c9f93ccd89dd6f33db33b2a9029ca5afc252676f3a92317801cf7cc1db8af51bb28a87948e992b3cbfa52248125556a337efeae6c9c5136d5666680b33ae69ba984f5c57c3d2ae6077ee5d8f3a6492ad46c18b30d4ba71c8bc76cb53e577a1859f5321ef4f4e0bc4851720afe252cdaac4748f2a3d9f2f9aa2c535bf95f5e641ecdaacd3e1cc109e44c1486d9055a74630c89e769a3def1b3bb798cba401658b19c8360c8f01d6f467613392278aafea11dee85ea39712544c3a4a647a511ae88a03d2a4493d0a478bb25d93025f13d2e203b42d2d99543c86d230facfb2b55237e7494dd8a320204a23708c36f2a60e2308c3ca76e60408a9269cc375695d5494302024c1366535e4b55eb72cecbf0b4dc9a4aa9e5e55ed622abd4c43a907f089c4f29d2cc9f38e42c4c2370b4bace6d85d3793917d4e1192444cf6b4ebf994f8beb42ec5351077d1a96cbf4eee02fef82161d97835c2530e60638b2218b149641df0fd17057bfba99e9b2ca24024c30f482b34c15f905ea5d066b3a3e79a9fe22a8de71fa090c35056ad3e41e197aa5b2c6872af0b708dd3e3c7c44c41a80e93d2cfcfb7420bd846df3e69f15df78a28bf6efb8222cc62b0b6b55468d3bbd5fe271a3fb7ee2c52f555458ebcba73376b35b922f2dfd8d35e85db683d0454c319e459489f5036424eae18d89d7325fd8d7a657a2295d9a3b345acc6004427d1b8a727a101f3fcba7c904a36f3f5cc24a4375d48c273b1e9cedca9f7f0e46a01b06a4e58be6c35f8923cb702ca30a806658e14135ffcf5f8f5dabffe82";
 const CONFIRM_DEVICE_ASSERTION: &str = "MEQCIAR5vzfjU8+zpQ/jU2mZdgSYYO3OFw9g9VEAGIg9RbqsAiAi/r5y+OaQAVsLI5Zi6Z5m7wkZcihbr5Uz8iDSYp5jhA==";
 const CREATE_KEY_ASSERTION: &str = "MEUCIQDkUENQfUm7y4fk+M1Xml2LpCtox3m09reCFClLidiOAwIgOKwT/RR5uwYvHxd9uWtfCAVIKbact5vD7YcA6tqZiXI=";
-const CONFIRM_KEY_ASSERTION: &str = "MEQCICy9lFgMfDtfh2C0LiwiV2zvifYz3bKI/qj9LP2LaxsQAiAcHScuvIvfexXRhn8ljHmUWb8j+zEi08AUhSWpAQAVlQ==";
+const CONFIRM_KEY_ASSERTION: &str = "MEYCIQD9FX/UadYjfvbD0Ual8e7AJSvLDZsyQlYKmalitksBkAIhAMDoQEa+VZsJTi0WHemvVEBk09Lx0b0BoejbHWbvcsgI";
 const SIGN_ASSERTION: &str = "MEQCIGkPGoSm8cBNfUShXdCOMPcR+ulQQ14wEq+0O/V1yTu7AiAwVqL5mT642qXO4b1I04sAMd9IWZngX/zB2gRHOp9mRw==";
 // {"type":"ConfirmTeeDevice","message": "xx_tee_device_cipher_text_xx"}
 const CONFIRM_TEE_CLIENT_REGISTER_ASSERTION: &str = "LnxoVdHGe+HnCcwS7FCWJecITXf2KlJBoHO7/Jr4DFI=";
@@ -119,9 +123,17 @@ pub fn sign_payload(message: &str) -> String {
 }
 
 pub fn sign_without_assertion_payload(message: &str) -> String {
+    sign_without_assertion_payload_with_params(message, ISSUED_AT, NONCE)
+}
+
+pub fn sign_without_assertion_payload_with_params(
+    message: &str,
+    issued_at: i64,
+    nonce: &str,
+) -> String {
     format!(
         "{{\"type\":\"SignWithoutAssertion\",\"message\":\"{}\",\"issued_at\":{},\"nonce\":\"{}\"}}",
-        message, ISSUED_AT, NONCE
+        message, issued_at, nonce
     )
 }
 
@@ -166,6 +178,7 @@ struct TeeClientRegisterRequest {
 
 #[derive(Debug, Serialize)]
 struct CreateWalletKeyRequest {
+    user_id: u64,
     device_ciphertext: String,
     device_confirmed_assertion: String,
     bind_device_ciphertext: String,
@@ -368,6 +381,7 @@ async fn run_basic(client: &Client, base_url: &str) -> Result<()> {
     enclave_vault::model::verify_pwd_sig(&create_wallet_key_payload, &pwd_pubkey, &pwd_sig)?;
     println!("create_wallet_key_payload: {}", create_wallet_key_payload);
     let create_request = CreateWalletKeyRequest {
+        user_id: now_millis() as u64,
         issued_at: ISSUED_AT,
         nonce: NONCE.to_string(),
         key_id: KEY_ID.to_string(),
@@ -486,7 +500,7 @@ async fn run_basic(client: &Client, base_url: &str) -> Result<()> {
         nonce: NONCE.to_string(),
         region: REGION.to_string(),
     };
-
+    println!("file={},line={}", file!(), line!());
     let sign_without_assertion_response = post_json(
         client,
         base_url,
@@ -499,12 +513,14 @@ async fn run_basic(client: &Client, base_url: &str) -> Result<()> {
         "sign_without_assertion_response: {:?}",
         sign_without_assertion_response
     );
+    println!("file={},line={}", file!(), line!());
     let sign_without_assertion_data: SignResponse =
         serde_json::from_value(extract_attested_data(&sign_without_assertion_response)?)?;
     println!(
         "sign_without_assertion_sig: {}",
         sign_without_assertion_data.sig
     );
+    println!("file={},line={}", file!(), line!());
 
     //6  recovre wallet
     //6.1）new device register
@@ -518,7 +534,7 @@ async fn run_basic(client: &Client, base_url: &str) -> Result<()> {
         key_id: KEY_ID.to_string(),
         region: REGION.to_string(),
     };
-
+    println!("file={},line={}", file!(), line!());
     let tee_response = post_json(
         client,
         base_url,
@@ -575,8 +591,68 @@ async fn run_basic(client: &Client, base_url: &str) -> Result<()> {
     let recover_wallet_data: ModifyPasswordResponse =
         serde_json::from_value(extract_attested_data(&recover_wallet_response)?)?;
     println!("recover_wallet_data: {:?}", recover_wallet_data);
-    //7) (option),  钱包恢复之后使用sign接口确认一下
-
+    //7) sign_without_assertion wrong password lockout check
+    let wrong_attempt_nonce_1 = "wrong-sign-without-assertion-1";
+    let wrong_attempt_payload_1 = sign_without_assertion_payload_with_params(
+        &PLACEHOLDER_MESSAGE.as_bytes().encode_bs64(),
+        ISSUED_AT,
+        wrong_attempt_nonce_1,
+    );
+    let wrong_attempt_request_1 = SignWithoutAssertionRequest {
+        key_bond_ciphertext: new_key_bond_ciphertext.clone(),
+        key_bond_confirmed_assertion: new_key_bond_confirmed_assertion.clone(),
+        pwd_sig: sign_with_password(PASSWORD_SEED, &wrong_attempt_payload_1)?,
+        message: PLACEHOLDER_MESSAGE.as_bytes().encode_bs64(),
+        issued_at: ISSUED_AT,
+        nonce: wrong_attempt_nonce_1.to_string(),
+        region: REGION.to_string(),
+    };
+    let wrong_attempt_response_1 = post_json_allow_business_errors(
+        client,
+        base_url,
+        "/sign_without_assertion",
+        &wrong_attempt_request_1,
+        "sign_without_assertion_wrong_pwd_attempt_1",
+    )
+    .await?;
+    expect_business_error(
+        &wrong_attempt_response_1,
+        EnclaveError::PwdSigVerifyFailed.code(),
+        &EnclaveError::PwdSigVerifyFailed.to_string(),
+    )?;
+    println!("file={},line={}", file!(), line!());
+    let wrong_attempt_nonce_2 = "wrong-sign-without-assertion-2";
+    let wrong_attempt_payload_2 = sign_without_assertion_payload_with_params(
+        &PLACEHOLDER_MESSAGE.as_bytes().encode_bs64(),
+        ISSUED_AT,
+        wrong_attempt_nonce_2,
+    );
+    let wrong_attempt_request_2 = SignWithoutAssertionRequest {
+        key_bond_ciphertext: new_key_bond_ciphertext.clone(),
+        key_bond_confirmed_assertion: new_key_bond_confirmed_assertion.clone(),
+        pwd_sig: sign_with_password(PASSWORD_SEED, &wrong_attempt_payload_2)?,
+        message: PLACEHOLDER_MESSAGE.as_bytes().encode_bs64(),
+        issued_at: ISSUED_AT,
+        nonce: wrong_attempt_nonce_2.to_string(),
+        region: REGION.to_string(),
+    };
+    println!("file={},line={}", file!(), line!());
+    let wrong_attempt_response_2 = post_json_allow_business_errors(
+        client,
+        base_url,
+        "/sign_without_assertion",
+        &wrong_attempt_request_2,
+        "sign_without_assertion_wrong_pwd_attempt_2",
+    )
+    .await?;
+    println!("file={},line={}", file!(), line!());
+    expect_business_error(
+        &wrong_attempt_response_2,
+        EnclaveError::WalletIsLocked.code(),
+        &EnclaveError::WalletIsLocked.to_string(),
+    )?;
+    println!("sign_without_assertion wrong password lockout verified");
+    println!("everything is done");
     Ok(())
 }
 
@@ -592,6 +668,32 @@ fn sign_with_password(password_seed: &str, payload: &str) -> Result<String> {
 }
 
 async fn post_json<T: Serialize>(
+    client: &Client,
+    base_url: &str,
+    path: &str,
+    payload: &T,
+    label: &str,
+) -> Result<ApiResponse> {
+    let parsed = send_json_request(client, base_url, path, payload, label).await?;
+    if let Some(errors) = &parsed.errors {
+        if !errors.is_empty() {
+            bail!("{} returned business errors: {}", label, errors.join("; "));
+        }
+    }
+    Ok(parsed)
+}
+
+async fn post_json_allow_business_errors<T: Serialize>(
+    client: &Client,
+    base_url: &str,
+    path: &str,
+    payload: &T,
+    label: &str,
+) -> Result<ApiResponse> {
+    send_json_request(client, base_url, path, payload, label).await
+}
+
+async fn send_json_request<T: Serialize>(
     client: &Client,
     base_url: &str,
     path: &str,
@@ -629,11 +731,6 @@ async fn post_json<T: Serialize>(
 
     let parsed: ApiResponse = serde_json::from_str(&body)
         .with_context(|| format!("{} response JSON deserialize failed", label))?;
-    if let Some(errors) = &parsed.errors {
-        if !errors.is_empty() {
-            bail!("{} returned business errors: {}", label, errors.join("; "));
-        }
-    }
     Ok(parsed)
 }
 
@@ -672,4 +769,38 @@ fn extract_attested_data(response: &ApiResponse) -> Result<Value> {
         bail!("attestation payload digest mismatch")
     }
     Ok(data)
+}
+
+fn expect_business_error(
+    response: &ApiResponse,
+    expected_code: u32,
+    expected_msg: &str,
+) -> Result<()> {
+    let error = response
+        .errors
+        .as_ref()
+        .and_then(|errors| errors.first())
+        .context("response did not contain any business error")?;
+    let error_json: Value =
+        serde_json::from_str(error).context("business error was not valid json")?;
+    let actual_code = error_json
+        .get("code")
+        .and_then(Value::as_u64)
+        .context("business error did not contain numeric code")?;
+    let actual_msg = error_json
+        .get("msg")
+        .and_then(Value::as_str)
+        .context("business error did not contain msg")?;
+
+    if actual_code != u64::from(expected_code) || actual_msg != expected_msg {
+        bail!(
+            "unexpected business error: expected code={}, msg={}, actual code={}, msg={}",
+            expected_code,
+            expected_msg,
+            actual_code,
+            actual_msg
+        );
+    }
+
+    Ok(())
 }
