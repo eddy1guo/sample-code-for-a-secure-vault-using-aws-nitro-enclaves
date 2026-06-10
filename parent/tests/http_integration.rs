@@ -41,6 +41,20 @@ fn valid_decrypt_request() -> serde_json::Value {
     })
 }
 
+fn valid_generate_root_secret_request() -> serde_json::Value {
+    serde_json::json!({
+        "key_id": "mrk-test-key-id",
+        "region": "us-east-1"
+    })
+}
+
+fn valid_inject_root_secret_request() -> serde_json::Value {
+    serde_json::json!({
+        "root_secret_ciphertext": "abcd1234",
+        "region": "us-east-1"
+    })
+}
+
 // =============================================================================
 // Health Endpoint Tests
 // Requirements: 2.1, 2.2, 2.3
@@ -164,4 +178,24 @@ async fn test_oversized_request_body_returns_413() {
         .bytes(Bytes::from(oversized_body))
         .await;
     response.assert_status(axum::http::StatusCode::PAYLOAD_TOO_LARGE);
+}
+
+#[tokio::test]
+async fn test_generate_root_secret_ciphertext_with_no_enclaves_returns_404() {
+    let server = create_test_server();
+    let response = server
+        .post("/generate_root_secret_ciphertext")
+        .json(&valid_generate_root_secret_request())
+        .await;
+    response.assert_status_not_found();
+}
+
+#[tokio::test]
+async fn test_inject_root_secret_ciphertext_with_no_enclaves_returns_404() {
+    let server = create_test_server();
+    let response = server
+        .post("/inject_root_secret_ciphertext")
+        .json(&valid_inject_root_secret_request())
+        .await;
+    response.assert_status_not_found();
 }

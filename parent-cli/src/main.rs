@@ -1,9 +1,7 @@
-use std::str::FromStr;
-
 use anyhow::{Context, Result, bail};
 use clap::{Parser, Subcommand};
 use enclave_vault::credential::aws;
-use enclave_vault::credential::common::{Platform, sha256_bytes};
+use enclave_vault::credential::common::sha256_bytes;
 use enclave_vault::ed25519;
 use enclave_vault::error::Error as EnclaveError;
 use enclave_vault::model::ModifyPasswordResponse;
@@ -164,6 +162,24 @@ struct Cli {
 #[derive(Subcommand)]
 enum Command {
     RunBasic,
+    RunRootSecret {
+        #[arg(long, default_value = KEY_ID)]
+        key_id: String,
+        #[arg(long, default_value = REGION)]
+        region: String,
+    },
+    GenerateRootSecretCiphertext {
+        #[arg(long, default_value = KEY_ID)]
+        key_id: String,
+        #[arg(long, default_value = REGION)]
+        region: String,
+    },
+    InjectRootSecretCiphertext {
+        #[arg(long)]
+        root_secret_ciphertext: String,
+        #[arg(long, default_value = REGION)]
+        region: String,
+    },
 }
 
 #[derive(Debug, Serialize)]
@@ -215,6 +231,7 @@ struct ConfirmedKeyBond {
 #[derive(Debug, Serialize)]
 struct ModifyPasswordRequest {
     key_bonds: Vec<ConfirmedKeyBond>,
+    current_pwd_sig: String,
     new_pwd_pubkey: String,
     new_pwd_sig: String,
     assertion: String,
@@ -251,6 +268,28 @@ struct SignWithoutAssertionRequest {
 #[derive(Debug, Deserialize)]
 struct RegisterTeeDeviceResponse {
     client_ciphertext: String,
+}
+
+#[derive(Debug, Serialize)]
+struct GenerateRootSecretCiphertextRequest {
+    key_id: String,
+    region: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct GenerateRootSecretCiphertextResponse {
+    root_secret_ciphertext: String,
+}
+
+#[derive(Debug, Serialize)]
+struct InjectRootSecretCiphertextRequest {
+    root_secret_ciphertext: String,
+    region: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct InjectRootSecretCiphertextResponse {
+    injected: bool,
 }
 
 #[derive(Debug, Deserialize)]
@@ -330,12 +369,101 @@ async fn main() -> Result<()> {
 
     match cli.command {
         Command::RunBasic => run_basic(&client, &cli.base_url).await?,
+        Command::RunRootSecret { key_id, region } => {
+            run_root_secret(&client, &cli.base_url, &key_id, &region).await?
+        }
+        Command::GenerateRootSecretCiphertext { key_id, region } => {
+            let root_secret_ciphertext =
+                generate_root_secret_ciphertext_example(&client, &cli.base_url, &key_id, &region)
+                    .await?;
+            println!("root_secret_ciphertext: {}", root_secret_ciphertext);
+        }
+        Command::InjectRootSecretCiphertext {
+            root_secret_ciphertext,
+            region,
+        } => {
+            inject_root_secret_ciphertext_example(
+                &client,
+                &cli.base_url,
+                &root_secret_ciphertext,
+                &region,
+            )
+            .await?;
+        }
     }
 
     Ok(())
 }
 
+async fn run_root_secret(
+    client: &Client,
+    base_url: &str,
+    key_id: &str,
+    region: &str,
+) -> Result<()> {
+    let root_secret_ciphertext =
+        generate_root_secret_ciphertext_example(client, base_url, key_id, region).await?;
+    println!(
+        "generated root_secret_ciphertext: {}",
+        root_secret_ciphertext
+    );
+
+    inject_root_secret_ciphertext_example(client, base_url, &root_secret_ciphertext, region).await
+}
+
+async fn generate_root_secret_ciphertext_example(
+    client: &Client,
+    base_url: &str,
+    key_id: &str,
+    region: &str,
+) -> Result<String> {
+    let request = GenerateRootSecretCiphertextRequest {
+        key_id: key_id.to_string(),
+        region: region.to_string(),
+    };
+    let response = post_json(
+        client,
+        base_url,
+        "/generate_root_secret_ciphertext",
+        &request,
+        "generate_root_secret_ciphertext",
+    )
+    .await?;
+    let data: GenerateRootSecretCiphertextResponse =
+        serde_json::from_value(extract_attested_data(&response)?)?;
+    Ok(data.root_secret_ciphertext)
+}
+
+async fn inject_root_secret_ciphertext_example(
+    client: &Client,
+    base_url: &str,
+    root_secret_ciphertext: &str,
+    region: &str,
+) -> Result<()> {
+    let request = InjectRootSecretCiphertextRequest {
+        root_secret_ciphertext: root_secret_ciphertext.to_string(),
+        region: region.to_string(),
+    };
+    let response = post_json(
+        client,
+        base_url,
+        "/inject_root_secret_ciphertext",
+        &request,
+        "inject_root_secret_ciphertext",
+    )
+    .await?;
+    let data: InjectRootSecretCiphertextResponse =
+        serde_json::from_value(extract_attested_data(&response)?)?;
+    if !data.injected {
+        bail!("inject_root_secret_ciphertext returned injected=false");
+    }
+    println!("inject_root_secret_ciphertext succeeded");
+    Ok(())
+}
+
 async fn run_basic(client: &Client, base_url: &str) -> Result<()> {
+    run_root_secret(client, base_url, KEY_ID, REGION).await?;
+
     let platform = "Google".to_string();
     //1) register tee device
     let register_tee_device_payload = register_tee_device_payload();
@@ -448,6 +576,7 @@ async fn run_basic(client: &Client, base_url: &str) -> Result<()> {
     let new_pwd_pubkey = password_pubkey(NEW_PASSWORD_SEED);
     let modify_payload = modify_password_payload();
     println!("modify_payload: {}", modify_payload);
+    let current_pwd_sig = sign_with_password(PASSWORD_SEED, &modify_payload)?;
     let new_pwd_sig = sign_with_password(NEW_PASSWORD_SEED, &modify_payload)?;
     let modify_password_assertion = generate_tee_assertion(&platform, &modify_payload, 2)?;
 
@@ -458,6 +587,7 @@ async fn run_basic(client: &Client, base_url: &str) -> Result<()> {
 
     let modify_password_request = ModifyPasswordRequest {
         key_bonds: key_bonds.clone(),
+        current_pwd_sig,
         new_pwd_pubkey: new_pwd_pubkey,
         new_pwd_sig,
         assertion: modify_password_assertion,

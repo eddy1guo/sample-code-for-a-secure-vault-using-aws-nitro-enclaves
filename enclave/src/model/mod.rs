@@ -2,6 +2,8 @@
 // SPDX-License-Identifier: MIT-0
 
 mod create_wallet_key;
+mod generate_root_secret_ciphertext;
+mod inject_root_secret_ciphertext;
 mod modify_password;
 mod recover_wallet;
 mod register_tee_device;
@@ -10,6 +12,13 @@ mod sign_without_assertion;
 
 pub use create_wallet_key::{
     Request as CreateWalletKeyRequest, Response as CreateWalletKeyResponse,
+};
+pub use generate_root_secret_ciphertext::{
+    Request as GenerateRootSecretCiphertextRequest,
+    Response as GenerateRootSecretCiphertextResponse,
+};
+pub use inject_root_secret_ciphertext::{
+    Request as InjectRootSecretCiphertextRequest, Response as InjectRootSecretCiphertextResponse,
 };
 pub use modify_password::{Request as ModifyPasswordRequest, Response as ModifyPasswordResponse};
 pub use recover_wallet::{Request as RecoverWalletRequest, Response as RecoverWalletResponse};
@@ -276,6 +285,16 @@ pub enum EnclaveAction {
     SignWithoutAssertion {
         #[serde(flatten)]
         inner: EnclaveRequest<SignWithoutAssertionRequest>,
+    },
+    #[serde(rename = "generate_root_secret_ciphertext")]
+    GenerateRootSecretCiphertext {
+        #[serde(flatten)]
+        inner: EnclaveRequest<GenerateRootSecretCiphertextRequest>,
+    },
+    #[serde(rename = "inject_root_secret_ciphertext")]
+    InjectRootSecretCiphertext {
+        #[serde(flatten)]
+        inner: EnclaveRequest<InjectRootSecretCiphertextRequest>,
     },
 }
 

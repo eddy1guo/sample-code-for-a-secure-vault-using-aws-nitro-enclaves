@@ -1,87 +1,61 @@
 // Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: MIT-0
 
-//! KMS integration module for the Nitro Enclave.
+//! KMS and root-secret integration module for the Nitro Enclave.
 //!
-//! This module provides functionality to decrypt KMS-encrypted private keys using
-//! the AWS Nitro Enclaves SDK FFI wrapper. The decrypted private keys are used
-//! for HPKE decryption of vault field values.
-//!
-//! # Security
-//!
-//! - Private key material is zeroized immediately after extraction
-//! - KMS decryption is performed via the Nitro Enclaves SDK which uses
-//!   attestation-based access control
-//! - The KMS key policy must allow the enclave's PCR values to decrypt
-//! - HPKE private keys are wrapped in [`SecureHpkePrivateKey`] which zeroizes on drop
+//! Root secret generation/injection still uses AWS KMS. Business payloads that
+//! were previously wrapped directly by KMS are now encrypted in-memory with the
+//! injected root secret. Legacy KMS ciphertexts remain decryptable for
+//! compatibility with existing stored data and examples.
+
+use std::sync::{LazyLock, RwLock};
 
 use anyhow::{Result, anyhow, bail};
-use aws_lc_rs::encoding::AsBigEndian;
-use aws_lc_rs::signature::{EcdsaKeyPair, EcdsaSigningAlgorithm};
+use openssl::symm::{Cipher, Crypter, Mode};
+use rand::{RngCore, rngs::OsRng};
 use rustls::crypto::hpke::HpkePrivateKey;
-use zeroize::{Zeroize, Zeroizing};
+use zeroize::Zeroizing;
 
 use crate::aws_ne;
-use crate::codec::bs58::{DecodeBs58, EncodeBs58};
-use crate::codec::bs64::EncodeBs64;
-use crate::codec::hex::DecodeHex;
-use crate::codec::json::JsonDeserialize;
+use crate::codec::hex::{DecodeHex, EncodeHex};
 use crate::credential::common::{TeeClient, Usage, WalletKeyBond};
-use crate::model::DecryptRequire;
 use crate::models::{CreateWalletKeyRequest, Credential, EnclaveRequest};
-use crate::utils::base64_decode;
+
+pub const ROOT_SECRET_LEN_BYTES: usize = 32;
+const ROOT_SECRET_NONCE_LEN_BYTES: usize = 12;
+const ROOT_SECRET_TAG_LEN_BYTES: usize = 16;
+
+static ROOT_SECRET: LazyLock<RwLock<Option<Zeroizing<Vec<u8>>>>> =
+    LazyLock::new(|| RwLock::new(None));
 
 /// A secure wrapper for HPKE private keys that zeroizes key material on drop.
-///
-/// This wrapper stores the raw key bytes in a [`Zeroizing`] container, ensuring
-/// the key material is securely erased from memory when no longer needed.
-///
-/// # Security
-///
-/// - Key bytes are stored in a `Zeroizing<Vec<u8>>` which zeroizes on drop
-/// - The `HpkePrivateKey` is created on-demand from the zeroized source
-/// - This ensures our copy of the key material is always cleaned up
 pub struct SecureHpkePrivateKey {
-    /// The raw private key bytes, wrapped for automatic zeroization
     key_bytes: Zeroizing<Vec<u8>>,
 }
 
 impl SecureHpkePrivateKey {
-    /// Creates a new secure HPKE private key from raw bytes.
-    ///
-    /// The bytes are wrapped in a `Zeroizing` container for automatic cleanup.
     pub fn new(key_bytes: Vec<u8>) -> Self {
         Self {
             key_bytes: Zeroizing::new(key_bytes),
         }
     }
 
-    /// Returns an `HpkePrivateKey` for use with rustls HPKE operations.
-    ///
-    /// Note: The returned `HpkePrivateKey` contains a copy of the key bytes.
-    /// This copy is not zeroized by rustls, but is short-lived (used only
-    /// during the HPKE decryption operation).
     pub fn as_hpke_private_key(&self) -> HpkePrivateKey {
         self.key_bytes.to_vec().into()
     }
 }
 
-/// Calls KMS decrypt via the Nitro Enclaves SDK FFI wrapper.
-///
-/// # Arguments
-///
-/// * `credential` - AWS credentials for KMS access
-/// * `ciphertext` - Base64-encoded ciphertext to decrypt
-/// * `region` - AWS region where the KMS key resides
-///
-/// # Returns
-///
-/// Returns the decrypted plaintext bytes.
-fn call_kms_decrypt(credential: &Credential, ciphertext: &str, region: &str) -> Result<Vec<u8>> {
-    // Base64 decode the ciphertext
+fn kms_encrypt_biz_error() -> anyhow::Error {
+    anyhow!(crate::error::Error::KMSEncryptFailed.to_json())
+}
+
+fn kms_decrypt_biz_error() -> anyhow::Error {
+    anyhow!(crate::error::Error::KMSDecryptFailed.to_json())
+}
+
+fn kms_decrypt_raw(credential: &Credential, ciphertext: &str, region: &str) -> Result<Vec<u8>> {
     let ciphertext_bytes = ciphertext.decode_hex()?;
 
-    // Call FFI wrapper directly instead of spawning subprocess
     aws_ne::kms_decrypt(
         region.as_bytes(),
         credential.access_key_id.as_bytes(),
@@ -92,47 +66,167 @@ fn call_kms_decrypt(credential: &Credential, ciphertext: &str, region: &str) -> 
     .map_err(|e| anyhow!("KMS decrypt failed: {}", e))
 }
 
-// encrypt message which encode by bs64
-pub fn call_kms_encrypt(
+fn call_kms_decrypt(credential: &Credential, ciphertext: &str, region: &str) -> Result<Vec<u8>> {
+    kms_decrypt_raw(credential, ciphertext, region)
+}
+
+fn call_kms_encrypt(
     credential: &Credential,
-    plaintext: &str,
+    plaintext: &[u8],
     region: &str,
     key_id: &str,
 ) -> Result<Vec<u8>> {
-    // Base64 decode the ciphertext
-    let plaintext_bytes = plaintext.as_bytes();
-
-    // Call FFI wrapper directly instead of spawning subprocess
     aws_ne::kms_encrypt(
         region.as_bytes(),
         credential.access_key_id.as_bytes(),
         credential.secret_access_key.as_bytes(),
         credential.session_token.as_bytes(),
-        plaintext_bytes,
-        &key_id,
+        plaintext,
+        key_id,
     )
     .map_err(|e| anyhow!("KMS encrypt failed: {}", e))
 }
 
-//解密在设备注册时候的密文结果获取tee的密钥公钥明文
+fn store_root_secret(root_secret: Zeroizing<Vec<u8>>) -> Result<()> {
+    let mut root_secret_guard = ROOT_SECRET
+        .write()
+        .map_err(|_| anyhow!("root secret lock poisoned"))?;
+    *root_secret_guard = Some(root_secret);
+    Ok(())
+}
+
+fn cloned_root_secret() -> Result<Zeroizing<Vec<u8>>> {
+    let root_secret_guard = ROOT_SECRET.read().map_err(|_| kms_decrypt_biz_error())?;
+    let root_secret = root_secret_guard
+        .as_ref()
+        .ok_or_else(kms_decrypt_biz_error)?;
+    Ok(Zeroizing::new(root_secret.to_vec()))
+}
+
+pub fn encrypt_with_root_secret(plaintext: &str) -> Result<String> {
+    let root_secret = cloned_root_secret()?;
+    let mut nonce = [0u8; ROOT_SECRET_NONCE_LEN_BYTES];
+    OsRng.fill_bytes(&mut nonce);
+
+    let cipher = Cipher::aes_256_gcm();
+    let mut crypter = Crypter::new(cipher, Mode::Encrypt, root_secret.as_slice(), Some(&nonce))
+        .map_err(|_| kms_encrypt_biz_error())?;
+    crypter.pad(false);
+
+    let mut ciphertext = vec![0u8; plaintext.len() + cipher.block_size()];
+    let mut count = crypter
+        .update(plaintext.as_bytes(), &mut ciphertext)
+        .map_err(|_| kms_encrypt_biz_error())?;
+    count += crypter
+        .finalize(&mut ciphertext[count..])
+        .map_err(|_| kms_encrypt_biz_error())?;
+    ciphertext.truncate(count);
+
+    let mut tag = [0u8; ROOT_SECRET_TAG_LEN_BYTES];
+    crypter
+        .get_tag(&mut tag)
+        .map_err(|_| kms_encrypt_biz_error())?;
+
+    let mut payload = Vec::with_capacity(
+        ROOT_SECRET_NONCE_LEN_BYTES + ciphertext.len() + ROOT_SECRET_TAG_LEN_BYTES,
+    );
+    payload.extend_from_slice(&nonce);
+    payload.extend_from_slice(&ciphertext);
+    payload.extend_from_slice(&tag);
+
+    Ok(payload.encode_hex())
+}
+
+pub fn decrypt_with_root_secret(ciphertext: &str) -> Result<Vec<u8>> {
+    let payload = ciphertext
+        .decode_hex()
+        .map_err(|_| kms_decrypt_biz_error())?;
+
+    if payload.len() < ROOT_SECRET_NONCE_LEN_BYTES + ROOT_SECRET_TAG_LEN_BYTES {
+        Err(kms_decrypt_biz_error())?;
+    }
+
+    let (nonce, ciphertext_and_tag) = payload.split_at(ROOT_SECRET_NONCE_LEN_BYTES);
+    let split_at = ciphertext_and_tag
+        .len()
+        .checked_sub(ROOT_SECRET_TAG_LEN_BYTES)
+        .ok_or_else(kms_decrypt_biz_error)?;
+    let (encrypted, tag) = ciphertext_and_tag.split_at(split_at);
+
+    let root_secret = cloned_root_secret()?;
+    let cipher = Cipher::aes_256_gcm();
+    let mut crypter = Crypter::new(cipher, Mode::Decrypt, root_secret.as_slice(), Some(nonce))
+        .map_err(|_| kms_decrypt_biz_error())?;
+    crypter.pad(false);
+    crypter.set_tag(tag).map_err(|_| kms_decrypt_biz_error())?;
+
+    let mut plaintext = vec![0u8; encrypted.len() + cipher.block_size()];
+    let mut count = crypter
+        .update(encrypted, &mut plaintext)
+        .map_err(|_| kms_decrypt_biz_error())?;
+    count += crypter
+        .finalize(&mut plaintext[count..])
+        .map_err(|_| kms_decrypt_biz_error())?;
+    plaintext.truncate(count);
+
+    Ok(plaintext)
+}
+
+pub fn generate_root_secret_ciphertext(
+    credential: &Credential,
+    region: &str,
+    key_id: &str,
+) -> Result<String> {
+    let mut root_secret = Zeroizing::new(vec![0u8; ROOT_SECRET_LEN_BYTES]);
+    OsRng.fill_bytes(root_secret.as_mut_slice());
+
+    let ciphertext = call_kms_encrypt(credential, root_secret.as_slice(), region, key_id)?;
+    Ok(ciphertext.encode_hex())
+}
+
+pub fn inject_root_secret_ciphertext(
+    credential: &Credential,
+    root_secret_ciphertext: &str,
+    region: &str,
+) -> Result<()> {
+    let root_secret = Zeroizing::new(call_kms_decrypt(
+        credential,
+        root_secret_ciphertext,
+        region,
+    )?);
+
+    if root_secret.len() != ROOT_SECRET_LEN_BYTES {
+        bail!(
+            "root secret length {} does not match expected {}",
+            root_secret.len(),
+            ROOT_SECRET_LEN_BYTES
+        );
+    }
+
+    store_root_secret(root_secret)
+}
+
+pub fn root_secret_loaded() -> Result<bool> {
+    let root_secret_guard = ROOT_SECRET
+        .read()
+        .map_err(|_| anyhow!("root secret lock poisoned"))?;
+    Ok(root_secret_guard.is_some())
+}
+
 pub fn get_tee_client(
-    payload: &EnclaveRequest<CreateWalletKeyRequest>,
+    _payload: &EnclaveRequest<CreateWalletKeyRequest>,
     device_ciphertext: &str,
 ) -> Result<TeeClient> {
     println!("{}:{}", file!(), line!());
-    let plaintext = call_kms_decrypt(
-        &payload.credential,
-        device_ciphertext,
-        &payload.request.region,
-    )
-    .map_err(|err| anyhow!("failed to call KMS: {err:?}"))?;
+    let plaintext = decrypt_with_root_secret(device_ciphertext)
+        .map_err(|err| anyhow!("failed to decrypt tee client ciphertext: {err:?}"))?;
 
     let client: TeeClient = serde_json::from_slice(&plaintext)?;
     if client.usage != Usage::RegisterTeeDevice {
         bail!("Usage not matched!");
     }
     println!(
-        "[enclave:plaintext_pubkey] KMS decrypted private key length: {:?}",
+        "[enclave:plaintext_pubkey] decrypted tee client payload: {:?}",
         client
     );
 
@@ -140,46 +234,122 @@ pub fn get_tee_client(
 }
 
 use crate::model::RecoverWalletRequest;
-//todo: 整理
+
 pub fn get_tee_client2(payload: &EnclaveRequest<RecoverWalletRequest>) -> Result<TeeClient> {
     println!("{}:{}", file!(), line!());
-    let plaintext = call_kms_decrypt(
-        &payload.credential,
-        &payload.request.new_device_ciphertext,
-        &payload.request.region,
-    )
-    .map_err(|err| anyhow!("failed to call KMS: {err:?}"))?;
+    let plaintext = decrypt_with_root_secret(&payload.request.new_device_ciphertext)
+        .map_err(|err| anyhow!("failed to decrypt tee client ciphertext: {err:?}"))?;
 
     let client: TeeClient = serde_json::from_slice(&plaintext)?;
     if client.usage != Usage::RegisterTeeDevice {
         bail!("Usage not matched!");
     }
     println!(
-        "[enclave:plaintext_pubkey] KMS decrypted private key length: {:?}",
+        "[enclave:plaintext_pubkey] decrypted tee client payload: {:?}",
         client
     );
 
     Ok(client)
 }
 
-//解密在设备注册时候的密文结果获取tee的密钥公钥明文
 pub fn get_wallet_key_bond(
-    credential: &Credential,
+    _credential: &Credential,
     ciphertext: &str,
-    region: &str,
+    _region: &str,
 ) -> Result<WalletKeyBond> {
     println!("{}:{}", file!(), line!());
-    let plaintext = call_kms_decrypt(credential, ciphertext, region)
-        .map_err(|err| anyhow!("failed to call KMS: {err:?}"))?;
+    let plaintext = decrypt_with_root_secret(ciphertext)
+        .map_err(|err| anyhow!("failed to decrypt wallet key bond ciphertext: {err:?}"))?;
 
     let client: WalletKeyBond = serde_json::from_slice(&plaintext)?;
     if client.usage != Usage::CreateWalletKey {
         bail!("Usage is {}.expect CreatedWalletKey", client.usage);
     }
     println!(
-        "[enclave:plaintext_pubkey] KMS decrypted private key length: {:?}",
+        "[enclave:plaintext_pubkey] decrypted wallet key bond payload: {:?}",
         client
     );
 
     Ok(client)
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used)]
+mod tests {
+    use super::*;
+    use crate::credential::common::Platform;
+    use crate::models::Credential;
+
+    fn root_secret_bytes() -> Vec<u8> {
+        vec![7u8; ROOT_SECRET_LEN_BYTES]
+    }
+
+    fn dummy_credential() -> Credential {
+        Credential {
+            access_key_id: "akid".to_string(),
+            secret_access_key: "secret".to_string(),
+            session_token: "token".to_string(),
+        }
+    }
+
+    fn clear_root_secret() {
+        let mut root_secret_guard = ROOT_SECRET.write().unwrap();
+        *root_secret_guard = None;
+    }
+
+    #[test]
+    fn test_store_root_secret_marks_it_loaded() {
+        clear_root_secret();
+
+        store_root_secret(Zeroizing::new(root_secret_bytes())).unwrap();
+
+        assert!(root_secret_loaded().unwrap());
+    }
+
+    #[test]
+    fn test_store_root_secret_allows_overwrite() {
+        clear_root_secret();
+
+        store_root_secret(Zeroizing::new(root_secret_bytes())).unwrap();
+        store_root_secret(Zeroizing::new(vec![9u8; ROOT_SECRET_LEN_BYTES])).unwrap();
+
+        assert!(root_secret_loaded().unwrap());
+    }
+
+    #[test]
+    fn test_business_payload_round_trip_uses_root_secret_prefix() {
+        clear_root_secret();
+        store_root_secret(Zeroizing::new(root_secret_bytes())).unwrap();
+
+        let ciphertext = encrypt_with_root_secret("hello-root-secret").unwrap();
+        let plaintext = decrypt_with_root_secret(&ciphertext).unwrap();
+        assert_eq!(plaintext, b"hello-root-secret");
+    }
+
+    #[test]
+    fn test_wallet_key_bond_round_trip_uses_root_secret_ciphertext() {
+        clear_root_secret();
+        store_root_secret(Zeroizing::new(root_secret_bytes())).unwrap();
+
+        let bond = WalletKeyBond {
+            user_id: 1,
+            client_platform: Platform::Google,
+            app_id: "app".to_string(),
+            master_device_pubkey: "master".to_string(),
+            tee_device_pubkey: "tee".to_string(),
+            pwd_pubkey: "pwd".to_string(),
+            wallet_prikey: "wallet".to_string(),
+            usage: Usage::CreateWalletKey,
+            counter: Some(1),
+        };
+        let plaintext = serde_json::to_string(&bond).unwrap();
+        let ciphertext = encrypt_with_root_secret(&plaintext).unwrap();
+
+        let decrypted =
+            get_wallet_key_bond(&dummy_credential(), &ciphertext, "ap-southeast-1").unwrap();
+
+        assert_eq!(decrypted.user_id, bond.user_id);
+        assert_eq!(decrypted.master_device_pubkey, bond.master_device_pubkey);
+        assert_eq!(decrypted.tee_device_pubkey, bond.tee_device_pubkey);
+    }
 }

@@ -3,7 +3,6 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 
 use crate::codec::bs58::{DecodeBs58, EncodeBs58};
-use crate::codec::hex::EncodeHex;
 use crate::codec::json::JsonSerialize;
 use crate::credential::assertion::verify_assertion;
 use crate::credential::aws::is_debug_mode;
@@ -11,7 +10,7 @@ use crate::credential::common::{Usage, WalletKeyBond};
 use crate::ed25519::{self, new_key_pair};
 use crate::error::Error;
 use crate::kms::get_wallet_key_bond;
-use crate::kms::{call_kms_encrypt, get_tee_client};
+use crate::kms::{encrypt_with_root_secret, get_tee_client};
 use crate::model::{DecryptRequire, Ed25519Title, EnclaveRequest, validate_nonce_issued_at};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -100,14 +99,9 @@ impl EnclaveRequest<Request> {
         Ok(())
     }
 
-    fn encrypt(&self, plaint_text: &str) -> Result<Vec<u8>> {
-        call_kms_encrypt(
-            &self.credential,
-            plaint_text,
-            &self.request.region,
-            &self.request.key_id,
-        )
-        .map_err(|err| anyhow!("failed to call KMS:call_kms_encrypt: {err:?}"))
+    fn encrypt(&self, plaint_text: &str) -> Result<String> {
+        encrypt_with_root_secret(plaint_text)
+            .map_err(|err| anyhow!("failed to encrypt with root secret: {err:?}"))
     }
 
     pub fn execute(&self) -> Result<Response> {
@@ -197,7 +191,7 @@ impl EnclaveRequest<Request> {
         .serialize_json()?;
         println!("generate new wallet:  {} ", plaint_text);
         let res: Response = Response {
-            key_bond_ciphertext: self.encrypt(&plaint_text)?.encode_hex(),
+            key_bond_ciphertext: self.encrypt(&plaint_text)?,
             wallet_pubkey,
         };
         Ok(res)

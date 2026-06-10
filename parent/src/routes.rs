@@ -21,6 +21,8 @@ use crate::application::AppState;
 use crate::constants;
 use crate::errors::AppError;
 use crate::models::CreateWalletKeyRequest;
+use crate::models::GenerateRootSecretCiphertextRequest;
+use crate::models::InjectRootSecretCiphertextRequest;
 use crate::models::SignRequest;
 use crate::models::{
     ApiResponse, Credential, EnclaveAction, EnclaveDescribeInfo, EnclaveRequest, EnclaveResponse,
@@ -266,6 +268,32 @@ pub async fn register_tee_device(
 ) -> Result<Json<ApiResponse>, AppError> {
     let response = call_enclave_with_request(state, request, |inner| {
         EnclaveAction::TeeClientRegister { inner }
+    })
+    .await?;
+
+    Ok(Json(into_api_response(response)))
+}
+
+#[tracing::instrument(skip(state, request))]
+pub async fn generate_root_secret_ciphertext(
+    State(state): State<Arc<AppState>>,
+    Json(request): Json<GenerateRootSecretCiphertextRequest>,
+) -> Result<Json<ApiResponse>, AppError> {
+    let response = call_enclave_with_request(state, request, |inner| {
+        EnclaveAction::GenerateRootSecretCiphertext { inner }
+    })
+    .await?;
+
+    Ok(Json(into_api_response(response)))
+}
+
+#[tracing::instrument(skip(state, request))]
+pub async fn inject_root_secret_ciphertext(
+    State(state): State<Arc<AppState>>,
+    Json(request): Json<InjectRootSecretCiphertextRequest>,
+) -> Result<Json<ApiResponse>, AppError> {
+    let response = call_enclave_with_request(state, request, |inner| {
+        EnclaveAction::InjectRootSecretCiphertext { inner }
     })
     .await?;
 

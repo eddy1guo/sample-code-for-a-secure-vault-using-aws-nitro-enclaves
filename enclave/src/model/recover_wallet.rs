@@ -4,14 +4,13 @@ use serde_json::json;
 
 use crate::codec::bs58::{DecodeBs58, EncodeBs58};
 use crate::codec::bs64::DecodeBs64;
-use crate::codec::hex::EncodeHex;
 use crate::codec::json::JsonSerialize;
 use crate::credential::assertion::verify_assertion;
 use crate::credential::aws::is_debug_mode;
 use crate::credential::common::Usage;
 use crate::ed25519::{self, ExtractPubkey};
 use crate::functions::now_millis;
-use crate::kms::{call_kms_encrypt, get_tee_client, get_tee_client2, get_wallet_key_bond};
+use crate::kms::{encrypt_with_root_secret, get_tee_client, get_tee_client2, get_wallet_key_bond};
 use crate::model::{
     ConfirmedKeyBond, DecryptRequire, Ed25519Title, EnclaveRequest, validate_nonce_issued_at,
 };
@@ -185,14 +184,8 @@ impl EnclaveRequest<Request> {
                 .add_title();
             let plaint_text = wallet_bond.serialize_json()?;
             println!("{},time={}", line!(), now_millis());
-            let key_bond_ciphertext = call_kms_encrypt(
-                &self.credential,
-                &plaint_text,
-                &self.request.region,
-                &self.request.key_id,
-            )
-            .map_err(|err| anyhow!("failed to call KMS:call_kms_encrypt: {err:?}"))?
-            .encode_hex();
+            let key_bond_ciphertext = encrypt_with_root_secret(&plaint_text)
+                .map_err(|err| anyhow!("failed to encrypt with root secret: {err:?}"))?;
             println!("{},time={}", line!(), now_millis());
             //new_key_bonds.push((key_bond_ciphertext, wallet_pubkey))
             let key_bond = KeyBondMap {

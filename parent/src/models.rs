@@ -21,7 +21,7 @@ use zeroize::ZeroizeOnDrop;
 
 use crate::constants::{
     MAX_ENCODING_LENGTH, MAX_ENCRYPTED_KEY_LENGTH, MAX_EXPRESSIONS_COUNT, MAX_FIELDS_COUNT,
-    MAX_REGION_LENGTH, MAX_SUITE_ID_LENGTH, MAX_VAULT_ID_LENGTH,
+    MAX_KMS_KEY_ID_LENGTH, MAX_REGION_LENGTH, MAX_SUITE_ID_LENGTH, MAX_VAULT_ID_LENGTH,
 };
 
 /// The information to be provided for a `describe-enclaves` request.
@@ -344,6 +344,16 @@ pub enum EnclaveAction {
         #[serde(flatten)]
         inner: EnclaveRequest<RegisterTeeDeviceRequest>,
     },
+    #[serde(rename = "generate_root_secret_ciphertext")]
+    GenerateRootSecretCiphertext {
+        #[serde(flatten)]
+        inner: EnclaveRequest<GenerateRootSecretCiphertextRequest>,
+    },
+    #[serde(rename = "inject_root_secret_ciphertext")]
+    InjectRootSecretCiphertext {
+        #[serde(flatten)]
+        inner: EnclaveRequest<InjectRootSecretCiphertextRequest>,
+    },
 }
 
 /// Response received from the enclave over vsock.
@@ -411,6 +421,7 @@ pub struct CreateWalletKeyRequest {
 pub struct ModifyPasswordRequest {
     #[validate(length(min = 1))]
     pub key_bonds: Vec<ConfirmedKeyBond>,
+    pub current_pwd_sig: String,
     pub new_pwd_pubkey: String,
     pub new_pwd_sig: String,
     #[validate(length(min = 1, max = 1000000000))]
@@ -475,6 +486,24 @@ pub struct RegisterTeeDeviceRequest {
     pub issued_at: i64,
     pub nonce: String,
     pub key_id: String,
+    pub region: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Validate)]
+pub struct GenerateRootSecretCiphertextRequest {
+    #[validate(length(min = 1, max = "MAX_KMS_KEY_ID_LENGTH"))]
+    pub key_id: String,
+    #[validate(length(min = 1, max = "MAX_REGION_LENGTH"))]
+    #[validate(custom(function = "validate_aws_region"))]
+    pub region: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Validate)]
+pub struct InjectRootSecretCiphertextRequest {
+    #[validate(length(min = 1, max = "MAX_ENCRYPTED_KEY_LENGTH"))]
+    pub root_secret_ciphertext: String,
+    #[validate(length(min = 1, max = "MAX_REGION_LENGTH"))]
+    #[validate(custom(function = "validate_aws_region"))]
     pub region: String,
 }
 

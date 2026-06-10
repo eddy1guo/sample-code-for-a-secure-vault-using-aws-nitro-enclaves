@@ -4,18 +4,18 @@ use serde_json::json;
 
 use crate::codec::bs58::{DecodeBs58, EncodeBs58};
 use crate::codec::bs64::DecodeBs64;
-use crate::codec::hex::EncodeHex;
 use crate::codec::json::JsonSerialize;
 use crate::credential::assertion::verify_assertion;
 use crate::credential::aws::is_debug_mode;
 use crate::credential::common::Usage;
 use crate::ed25519::{self, ExtractPubkey};
 use crate::functions::now_millis;
-use crate::kms::{call_kms_encrypt, get_wallet_key_bond};
+use crate::kms::{encrypt_with_root_secret, get_wallet_key_bond};
 use crate::model::{ConfirmedKeyBond, Ed25519Title, EnclaveRequest, validate_nonce_issued_at};
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Request {
     pub key_bonds: Vec<ConfirmedKeyBond>,
+    pub current_pwd_sig: String,
     pub new_pwd_pubkey: String,
     pub new_pwd_sig: String,
     pub assertion: String,
@@ -95,6 +95,7 @@ impl EnclaveRequest<Request> {
             self.request.issued_at,
         ))?;
 
+        // 每个bond里面对应的全局数据是一致的任取一个就行
         let wallet_bond = get_wallet_key_bond(
             &self.credential,
             &self.request.key_bonds[0].ciphertext,
@@ -107,12 +108,19 @@ impl EnclaveRequest<Request> {
             wallet_bond.client_platform,
             &wallet_bond.app_id,
             &self.request.assertion,
-            &wallet_bond.tee_device_pubkey,
+            &wallet_bond.master_device_pubkey,
             &self.sign_payload(),
         )?;
         println!("file={},line={}", file!(), line!());
 
-        //验证密码签名
+        //验证旧密码签名
+        super::verify_pwd_sig(
+            &self.sign_payload(),
+            &wallet_bond.pwd_pubkey,
+            &self.request.current_pwd_sig,
+        )?;
+
+        //验证新密码签名
         super::verify_pwd_sig(
             &self.sign_payload(),
             &self.request.new_pwd_pubkey,
@@ -148,14 +156,8 @@ impl EnclaveRequest<Request> {
                 .add_title();
             let plaint_text = wallet_bond.serialize_json()?;
             println!("{},time={}", line!(), now_millis());
-            let key_bond_ciphertext = call_kms_encrypt(
-                &self.credential,
-                &plaint_text,
-                &self.request.region,
-                &self.request.key_id,
-            )
-            .map_err(|err| anyhow!("failed to call KMS:call_kms_encrypt: {err:?}"))?
-            .encode_hex();
+            let key_bond_ciphertext = encrypt_with_root_secret(&plaint_text)
+                .map_err(|err| anyhow!("failed to encrypt with root secret: {err:?}"))?;
             println!("{},time={}", line!(), now_millis());
             let key_bond = KeyBondMap {
                 key_bond_ciphertext,

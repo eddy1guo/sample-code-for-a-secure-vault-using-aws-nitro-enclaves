@@ -2,11 +2,10 @@ use anyhow::{Result, anyhow};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 
-use crate::codec::hex::EncodeHex;
 use crate::codec::json::JsonSerialize;
 use crate::credential::attestation::verify_attestation;
 use crate::credential::common::{Platform, TeeClient, Usage};
-use crate::kms::call_kms_encrypt;
+use crate::kms::encrypt_with_root_secret;
 use crate::model::{DecryptRequire, EnclaveRequest, validate_nonce_issued_at};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -75,14 +74,8 @@ impl EnclaveRequest<Request> {
         }
         .serialize_json()?;
         println!("file={},line={}", file!(), line!());
-        let client_ciphertext = call_kms_encrypt(
-            &self.credential,
-            &tee_client,
-            &self.request.region,
-            &self.request.key_id,
-        )
-        .map(|x| x.encode_hex())
-        .map_err(|err| anyhow!("failed to call KMS:call_kms_encrypt: {err:?}"))?;
+        let client_ciphertext = encrypt_with_root_secret(&tee_client)
+            .map_err(|err| anyhow!("failed to encrypt with root secret: {err:?}"))?;
         Ok(Response {
             client_ciphertext,
             tee_device_pubkey: pubkey,

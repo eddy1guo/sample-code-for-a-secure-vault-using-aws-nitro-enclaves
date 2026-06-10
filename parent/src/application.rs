@@ -178,6 +178,14 @@ pub fn create_router(options: ParentOptions, enclaves: Arc<Enclaves>) -> Router 
         .route("/modify_password", post(routes::modify_password))
         .route("/recover_wallet", post(routes::recover_wallet))
         .route("/register_tee_device", post(routes::register_tee_device))
+        .route(
+            "/generate_root_secret_ciphertext",
+            post(routes::generate_root_secret_ciphertext),
+        )
+        .route(
+            "/inject_root_secret_ciphertext",
+            post(routes::inject_root_secret_ciphertext),
+        )
         .with_state(state)
         .layer(RequestBodyLimitLayer::new(REQUEST_BODY_LIMIT))
         .layer(TimeoutLayer::with_status_code(

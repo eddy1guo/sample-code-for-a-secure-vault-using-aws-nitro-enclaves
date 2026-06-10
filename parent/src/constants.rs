@@ -65,6 +65,9 @@ pub const MAX_SUITE_ID_LENGTH: u64 = 1024;
 /// Maximum length of the `encrypted_private_key` field in [`crate::models::ParentRequest`].
 pub const MAX_ENCRYPTED_KEY_LENGTH: u64 = 8192;
 
+/// Maximum length of a KMS key identifier or ARN.
+pub const MAX_KMS_KEY_ID_LENGTH: u64 = 2048;
+
 /// Maximum length of the `encoding` field in [`crate::models::ParentRequest`].
 pub const MAX_ENCODING_LENGTH: u64 = 32;
 

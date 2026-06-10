@@ -7,15 +7,14 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::thread;
 
-use anyhow::{Error, Result, anyhow, bail};
+use anyhow::{Error, Result, anyhow};
 use enclave_vault::credential::aws::get_attestation_document;
 use enclave_vault::credential::common::sha256_bytes;
 use enclave_vault::error::ErrorType;
-use enclave_vault::model::{ModifyPasswordRequest, RecoverWalletRequest, SignRequest};
-use enclave_vault::models::{CreateWalletKeyRequest, EnclaveAction, TeeClientRegisterRequest};
+use enclave_vault::models::EnclaveAction;
 use enclave_vault::{
     constants::{ENCLAVE_PORT, MAX_CONCURRENT_CONNECTIONS},
-    models::{EnclaveRequest, EnclaveResponse},
+    models::EnclaveResponse,
     protocol::{recv_message, send_message},
 };
 use serde_json::Value;
@@ -94,6 +93,16 @@ fn dispatch_action(action: EnclaveAction) -> Result<Value> {
         }
         EnclaveAction::TeeClientRegister { inner } => {
             handle_request("start handle_tee_client_register", || inner.execute())
+        }
+        EnclaveAction::GenerateRootSecretCiphertext { inner } => {
+            handle_request("start handle_generate_root_secret_ciphertext", || {
+                inner.execute()
+            })
+        }
+        EnclaveAction::InjectRootSecretCiphertext { inner } => {
+            handle_request("start handle_inject_root_secret_ciphertext", || {
+                inner.execute()
+            })
         }
     }
 }
