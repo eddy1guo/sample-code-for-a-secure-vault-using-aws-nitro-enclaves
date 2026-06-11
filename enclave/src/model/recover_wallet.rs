@@ -140,17 +140,6 @@ impl EnclaveRequest<Request> {
             &self.request.pwd_sig,
         )?;
 
-        // 当前recovery和modify_pwd的区别就是不再校验硬件证明
-        // 且修改所有的key的主设备，因为recovery一定是只能恢复成主设备
-        //todo: 后续会加上 帐号密码试错的锁定的机制
-        // verify_assertion(
-        //     wallet_bond.client_platform,
-        //     &wallet_bond.app_id,
-        //     &self.request.assertion,
-        //     &wallet_bond.tee_device_pubkey,
-        //     &self.sign_payload(),
-        // )?;
-
         //校验每个key的客户端确认签名并且解密后换绑重新加密
         let mut new_key_bonds = vec![];
         println!("{},time={}", line!(), now_millis());

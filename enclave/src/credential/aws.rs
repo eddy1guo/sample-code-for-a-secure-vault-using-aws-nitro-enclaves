@@ -172,7 +172,6 @@ pub fn parse_cose_sign1_view(raw: &[u8]) -> Result<CoseSign1DocView> {
     })
 }
 
-//todo: testcase: only
 #[cfg(test)]
 mod tests {
     use super::*;

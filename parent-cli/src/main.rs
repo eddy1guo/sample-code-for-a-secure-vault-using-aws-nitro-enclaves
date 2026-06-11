@@ -76,7 +76,6 @@ const CONFIRM_KEY_BOND_ASSERTION: &str = "LnxoVdHGe+HnCcwS7FCWJecITXf2KlJBoHO7/J
 // {"type":"RecoverWallet","issued_at":1779876890,"nonce":"1111"}
 // {"type":"ModifyPassword","issued_at":1779876890,"nonce":"1111"}
 
-// todo: 每次新建的key都需要新的签名太麻烦，后续前两个流程正常走，后续的业务如果需要可以使用固定的assertion
 pub fn register_tee_device_payload() -> String {
     format!(
         "{{\"type\":\"RegisterTeeDevice\",\"issued_at\":{},\"nonce\":\"{}\"}}",
