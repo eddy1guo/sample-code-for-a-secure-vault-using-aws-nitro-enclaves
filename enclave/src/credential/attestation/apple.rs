@@ -27,9 +27,6 @@ CgYIKoZIzj0EAwMDaAAwZQIwQgFGnByvsiVbpTKwSga0kP0e8EeDS4+sQmTvb7vn
 53O5+FRXgeLhpJ06ysC5PrOyAjEAp5U4xDgEgllF7En3VcE3iexZZtKeYnpqtijV
 oyFraWVIyd/dganmrduC1bmTBGwD
 -----END CERTIFICATE-----";
-//todo: 这里动态配置
-const REAL_SAMPLE_APP_ID: &str = "F632MRRB47.com.chainlessios.app";
-
 const APPLE_APP_ATTEST_FORMAT: &str = "apple-appattest";
 const APPLE_NONCE_EXTENSION_OID: &str = "1.2.840.113635.100.8.2";
 const FLAG_ATTESTED_CREDENTIAL_DATA: u8 = 0x40;
@@ -184,7 +181,7 @@ pub fn verify_attestation(
     if (auth_data.flags & FLAG_ATTESTED_CREDENTIAL_DATA) == 0 {
         bail!("App Attest authData is missing attested credential data");
     }
-    //todo: 先暂时不检查apple的这个counter
+    // 保持和android的一致性，先暂时不检查apple的这个counter
     // if auth_data.counter != 0 {
     //     bail!("App Attest counter must start at zero");
     // }
@@ -559,7 +556,6 @@ impl RealWorldSample {
     pub fn verify(&self) -> Result<()> {
         let expected_client_data_hash = sha256_bytes(self.client_data_utf8.as_bytes());
         let provided_client_data_hash = self.client_data_hash_base64.decode_bs64()?;
-        //todo: replace assert with error
         assert_eq!(provided_client_data_hash, expected_client_data_hash);
         let attestation_object = self.attestation_object_base64.decode_bs64()?;
 

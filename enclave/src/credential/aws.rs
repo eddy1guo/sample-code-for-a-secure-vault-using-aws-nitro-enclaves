@@ -67,7 +67,7 @@ pub fn get_attestation_document(user_data: &[u8]) -> Result<Vec<u8>> {
             //let cose_sign1 = parse_cose_sign1_view(&document)?;
             //verify_attestation(&cose_sign1)?;
             let doc_hex: String = hex::ToHex::encode_hex(&document);
-            println!("cose_hex1: {}", doc_hex);
+            //println!("cose_hex1: {}", doc_hex);
             Ok(document)
         }
         Response::Error(code) => Err(anyhow!("NSM attestation failed: {:?}", code)),
@@ -105,7 +105,7 @@ fn detect_nitro_debug_mode() -> Result<bool> {
     };
     let doc: AttestationDoc = serde_cbor::from_slice(payload_bytes)
         .map_err(|err| anyhow!("failed to decode attestation payload: {err}"))?;
-    println!("PCRs: {:?}", doc.pcrs);
+    //println!("PCRs: {:?}", doc.pcrs);
     if doc.pcrs.is_empty() {
         bail!("attestation document does not contain PCRs");
     }
@@ -117,7 +117,7 @@ fn detect_nitro_debug_mode() -> Result<bool> {
 fn parse_cose_sign1(raw: &[u8]) -> Result<CoseSign1Doc> {
     let arr: Vec<serde_cbor::Value> = serde_cbor::from_slice(raw)?;
     for (i, v) in arr.iter().enumerate() {
-        println!("parse_cose_sign1_value1: {} ----> {:?}", i, v);
+        //println!("parse_cose_sign1_value1: {} ----> {:?}", i, v);
     }
     let to_bytes = |v: &serde_cbor::Value| match v {
         serde_cbor::Value::Bytes(b) => Ok(b.clone()),
@@ -335,11 +335,5 @@ IwLz3/Y=
             "DJWrTLEvpfXAkY2Ujj9ueDKsoqDDFUsZStNwaBZDANsY"
         );
         Ok(())
-    }
-
-    #[test]
-    #[ignore = "requires a live Nitro Enclave NSM environment"]
-    fn test_gen_doc_and_verify() -> Result<()> {
-        todo!()
     }
 }

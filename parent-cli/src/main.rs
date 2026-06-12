@@ -21,19 +21,8 @@ const DEFAULT_BASE_URL: &str = "https://localhost:10001";
 const REGION: &str = "ap-southeast-1";
 const KEY_ID: &str = "mrk-794e2c0173cd4848849739bf393a76b5";
 const PLACEHOLDER_MESSAGE: &str = "hello-wallet-sign";
-const RECOVERY_PLACEHOLDER_MESSAGE: &str = "reocover_wallet_message";
 const PASSWORD_SEED: &str = "123456";
 const NEW_PASSWORD_SEED: &str = "223456";
-const MODIFY_PASSWORD_ASSERTION: &str = "xxxx";
-const PLACEHOLDER_RECOVER_ASSERTION: &str = "xxxx";
-const PLACEHOLDER_NEW_DEVICE_CONFIRMED_ASSERTION: &str = "xxxx";
-const PLACEHOLDER_SIGN_WITHOUT_ASSERTION_SIGN_ASSERTION: &str = "xxxx";
-const FIXED_PWD_SIGN_PAYLOAD: &str =
-    r#"{"type":"Sign","message": "xxxx","issued_at":1779876890,"nonce":"1111"}"#;
-
-const APPLE_KEY_ID: &str = "LnxoVdHGe+HnCcwS7FCWJecITXf2KlJBoHO7/Jr4DFI=";
-
-//    {"type":"TeeClientRegister","issued_at":1779876890,"nonce":"1111"}
 const NONCE: &str = "1111";
 const ISSUED_AT: i64 = 1779876890;
 const NEW_DEVICE_NONCE: &str = "1111100";
@@ -45,13 +34,13 @@ const GOOGLE_ATTESTATION: [&str; 5] = [
     "MIICZDCCAeugAwIBAgIRAPLC/gLfzdARgeSj5rNpoowwCgYIKoZIzj0EAwMwUjEcMBoGA1UEAwwTS2V5IEF0dGVzdGF0aW9uIENBMTEQMA4GA1UECwwHQW5kcm9pZDETMBEGA1UECgwKR29vZ2xlIExMQzELMAkGA1UEBhMCVVMwHhcNMjYwMjA5MjAwMTExWhcNMjkwMjA4MjAwMTExWjApMRMwEQYDVQQKEwpHb29nbGUgTExDMRIwEAYDVQQDEwlEcm9pZCBDQTIwdjAQBgcqhkjOPQIBBgUrgQQAIgNiAATkwn4jOZw/zpxhsBn427C8Xz684+3Ajq5zsIzXwYlQPGieyFBuNxkUUFSa4YzZObqTOrgI9iFcfTBqOuOlyEtIuipjVowV9UCddBKO5ndqPTEk8Dd2RWn4yMtUTnyMMpGjga0wgaowHwYDVR0jBBgwFoAUUjK7LPtGQ5vc1oGpDmVm4DRB6kAwDwYDVR0TAQH/BAUwAwEB/zAdBgNVHQ4EFgQU+5TudOG1cBaViY6GIiidTA/hwx0wDgYDVR0PAQH/BAQDAgEGMEcGA1UdHwRAMD4wPKA6oDiGNmh0dHBzOi8vYW5kcm9pZC5nb29nbGVhcGlzLmNvbS9hdHRlc3RhdGlvbi9rZXlfY2ExLmNybDAKBggqhkjOPQQDAwNnADBkAjArwb7NmSVBlasMdMRjY0FFEum0b+SUZTMmvBT5AGYzk8xGCi2Mj2NZdchxZfxHUJgCMDseaiAzoixNISk40rfoR4vMvs7n9r4fgEgmb+9KQbpDgdq0+90mzcAL4vKr4hWSxA==",
     "MIICIjCCAaigAwIBAgIRAISp0Cl7DrWK5/8OgN52BgUwCgYIKoZIzj0EAwMwUjEcMBoGA1UEAwwTS2V5IEF0dGVzdGF0aW9uIENBMTEQMA4GA1UECwwHQW5kcm9pZDETMBEGA1UECgwKR29vZ2xlIExMQzELMAkGA1UEBhMCVVMwHhcNMjUwNzE3MjIzMjE4WhcNMzUwNzE1MjIzMjE4WjBSMRwwGgYDVQQDDBNLZXkgQXR0ZXN0YXRpb24gQ0ExMRAwDgYDVQQLDAdBbmRyb2lkMRMwEQYDVQQKDApHb29nbGUgTExDMQswCQYDVQQGEwJVUzB2MBAGByqGSM49AgEGBSuBBAAiA2IABCPaI3FO3z5bBQo8cuiEas4HjqCtG/mLFfRT0MsIssPBEEU5Cfbt6sH5yOAxqEi5QagpU1yX4HwnGb7OtBYpDTB57uH5Eczm34A5FNijV3s0/f0UPl7zbJcTx6xwqMIRq6NCMEAwDwYDVR0TAQH/BAUwAwEB/zAOBgNVHQ8BAf8EBAMCAQYwHQYDVR0OBBYEFFIyuyz7RkOb3NaBqQ5lZuA0QepAMAoGCCqGSM49BAMDA2gAMGUCMETfjPO/HwqReR2CS7p0ZWoD/LHs6hDi422opifHEUaYLxwGlT9SLdjkVpz0UUOR5wIxAIoGyxGKRHVTpqpGRFiJtQEOOTp/+s1GcxeYuR2zh/80lQyu9vAFCj6E4AXc+osmRg==",
 ];
-const FIX_DEVICE_CIPHERTEXT: &str = "0102020078b745c66ff477962a0c7936db47664e72366aea22ffbe5c791a8b8de1d273e9d701bec18902886bdfb420c6e57eddfb3695000001443082014006092a864886f70d010706a08201313082012d0201003082012606092a864886f70d010701301e060960864801650304012e3011040c0fdff1d96e95dc283b814d480201108081f8c319d95637289019b1aae29bc8483de07f4c0eba0411260dde108d21e0b13b53ca74cd1d4b6d58a1891452f3cf1b73970334402aa7c9c8959ec60cb5e0e2f9cdf19a49320fcf607c5aee10fb7baabb1f13c86c789dcc13bdc00a88bd049452c42272df2a3b9465ea503c254c5d1dcc797e8a0f9033f0099a549f6416947867712200c30114d932b9aef28f1a05f1867225d4733a3dea7d8d8713e6efa36a701c9490d26366b9632057d49f79c5699459fd71b6ae43d674aa570a9e9f25fd592e9623fc2046a7aac30290ab2867db94c63915e7070592e1c464c506b1b89e3007ffa2a1313f3cc6fd69bb40b943f7c0eecbb14cfb269fe8db";
-const FIX_NEW_DEVICE_CIPHERTEXT: &str = "0102020078b745c66ff477962a0c7936db47664e72366aea22ffbe5c791a8b8de1d273e9d7014ac3857105be2544f2d723bbb2a35792000001443082014006092a864886f70d010706a08201313082012d0201003082012606092a864886f70d010701301e060960864801650304012e3011040cf1cc21aa19917102b63795b00201108081f8a1d92e102106d4dab11bf7e56d400ba91436b5938d862ee4989797038c40886dc845e022df197dd3391c5c64df15a27faf65fee055f6228b6dbd02c806cac567e3dc5b1161fdf1cbf6dc3ed99adb61f9d1265e476907d79d62dacc6d25e6f332e25c6784c6e1e04b93488b90e61be93758a2f2a2384b6ac69ea4fa05a973cc3acda6df32afa0cf68af04a9ac193ed7f70251bf0a8a38ed08a63d25ac7e18885327f1717a840c73d2db570a39b0d68ac22ce30faaf17cefa78df6caa8e3f02764cf1283fb3c1497f2ddb512490c545db16744f1a072b136839b6832e0169cfa070ef0ded4034e792331d6e1eaf560dd301a61da6d5e2f075f";
+const FIX_DEVICE_CIPHERTEXT: &str = "487684d23e88b5ee40aedcd3aa170971bf2bbf0605f2657114bfe9f35257194fd7d1d71b03c55b38aa829d0444aeb010bfed35443b5dcc9ac3a9ec77605e34b6a6753abb3d7860a9957a4a16a064bc39a1dc650018288b251ab7f1f3df9ad6f6cccc0e691b9196a97684ba8e266d1a29e2e2b8ce9335ecf9867798ba2dffba760b0fa5b7ce9891e83f825dd4f8387f38c4fb17d00c324e54223c0343920d9a61b2af49bcc83eaa97c8bedf2a0c9dbf2b5593bec6f05d8fdec3cec0affa5b695aa2bc4c44b0cb2c8bb692e50183a62e54f825adbdfc07d421087306b872957198a1d390f9aa2f74ee5b38628336584faa9bc19dbc2dfadbe913";
+const FIX_NEW_DEVICE_CIPHERTEXT: &str = "c0b4bc5f5b3bc137bdeda5c8b40ce55de26bcb4484f97b64a71e32a508dde40e2e29cf3a42c1a9eca13d930fdc518710a7f1ecc193af2239cfe3449e18daf2b5c644f1907b85d80538205ea9e04ba6f6f078ae5e66fdb3f79fd4575040fbd2e15ed5542830282d0386dce37467de6d8f146f47b2ebb3ccafc53f9d7f9c94b1f61b94b57e70921083ce0b456380898bcb769846bd6e468229289fba2d68a23c574a449485d87a4a9fa156627933c931a64f7343a483f0da0dc30b55cc6e552dcc4445d4c8ce507d9a35924318b3c20f73b24b58d18a6908dc2ed1e5dfc4505da6b490917913d8245ab283550f397ff40f99b0290284b89a1c5a";
 
-const FIX_KEY_BOND_CIPHERTEXT: &str = "0102020078b745c66ff477962a0c7936db47664e72366aea22ffbe5c791a8b8de1d273e9d701842c1780c5720e0f15df9a4427492409000002c0308202bc06092a864886f70d010706a08202ad308202a9020100308202a206092a864886f70d010701301e060960864801650304012e3011040c5dc3e77f97a48a18ebd84c31020110808202734865fcbe6ce7a36d951b2d31f04726e8067460109f2f5f04a6136e89d9d0b6e09de2ecb1911c857781130a1a91b18feaa18b64767807c9f93ccd89dd6f33db33b2a9029ca5afc252676f3a92317801cf7cc1db8af51bb28a87948e992b3cbfa52248125556a337efeae6c9c5136d5666680b33ae69ba984f5c57c3d2ae6077ee5d8f3a6492ad46c18b30d4ba71c8bc76cb53e577a1859f5321ef4f4e0bc4851720afe252cdaac4748f2a3d9f2f9aa2c535bf95f5e641ecdaacd3e1cc109e44c1486d9055a74630c89e769a3def1b3bb798cba401658b19c8360c8f01d6f467613392278aafea11dee85ea39712544c3a4a647a511ae88a03d2a4493d0a478bb25d93025f13d2e203b42d2d99543c86d230facfb2b55237e7494dd8a320204a23708c36f2a60e2308c3ca76e60408a9269cc375695d5494302024c1366535e4b55eb72cecbf0b4dc9a4aa9e5e55ed622abd4c43a907f089c4f29d2cc9f38e42c4c2370b4bace6d85d3793917d4e1192444cf6b4ebf994f8beb42ec5351077d1a96cbf4eee02fef82161d97835c2530e60638b2218b149641df0fd17057bfba99e9b2ca24024c30f482b34c15f905ea5d066b3a3e79a9fe22a8de71fa090c35056ad3e41e197aa5b2c6872af0b708dd3e3c7c44c41a80e93d2cfcfb7420bd846df3e69f15df78a28bf6efb8222cc62b0b6b55468d3bbd5fe271a3fb7ee2c52f555458ebcba73376b35b922f2dfd8d35e85db683d0454c319e459489f5036424eae18d89d7325fd8d7a657a2295d9a3b345acc6004427d1b8a727a101f3fcba7c904a36f3f5cc24a4375d48c273b1e9cedca9f7f0e46a01b06a4e58be6c35f8923cb702ca30a806658e14135ffcf5f8f5dabffe82";
-const CONFIRM_DEVICE_ASSERTION: &str = "MEQCIAR5vzfjU8+zpQ/jU2mZdgSYYO3OFw9g9VEAGIg9RbqsAiAi/r5y+OaQAVsLI5Zi6Z5m7wkZcihbr5Uz8iDSYp5jhA==";
+const FIX_KEY_BOND_CIPHERTEXT: &str = "035e5f0f261d42dc631d5591fdbd9fc1a421c37caeebfc0e7746859f60605bb7ec1f4c25cc11ef76c8ae5269ebfea337315986bd73669a3f9e2f63dd85150a3067483f79a3031a3eafb20db5cbd9943d17de3c254f55167aebf474b5ebd3c7b0a9a6e8de80290e89308459ac39095f4d8070b63620ba190c3ce3cd4ff8489dead67f666b1c8729a575630218f20be8553428542b6b4cc3ee3fd6dc2379fab803cead48b3c0d26a07d7139623e45dfd131ec2913f405bfef13edd77913e0efb8c87ff9a952d6a37d85cd6755db48d3c7f167d547ff9ef7a22c082647fb4728326f0ba52a2984815d01a1cb9a1bcb5d8d4b216ba655d43f3bc71a6e0602cfe431bda9cdbc31ba1105a76d531ae5b03db039d64a08d55b0d5a0a5408c81ed4bd3d5e89c55c7de12acacef6847c09fdebeaf13d5ba923fe21878337438f733af6085e97ecbde986fd7427f7e49fa446ed2f9e3bfc50d24c4f3432e5f3c57c0e1eb46a5f39b88df7998f13e536cef77e65e8682f3cfc02bac4fa436ce07b2f8ae92faaaf6a9cfa24b24d9491671f8c6702b3471b72427d427af3fc2a9f2828413b2e8c3acaf6ac28ff76fe1285161855acf8034b433c964bd020b111aa71b2dae6b8d7d9513f82de5bd367bfbff54a08a533b509e59aa5dfc6f54035d58c6f3f7a60574d347f5c4e5585491adb0ef7bf592a55bd235a8c4c3c7692ab37bb5b0b6a21d8f423aaed103cc011a65162bc66faca51e93cc3803a266661ecbe79ee394ba747ece36c330984a2265611dd669d8752e54729a0d2185b485f7f826a70e0ede8378d9fe2e8c4a2bc63965d3439b38a7d44091397c4bf5104b3aed2b12ec629ec3c276573ef91ecf121e212741bc807d7434d7996f";
+const CONFIRM_DEVICE_ASSERTION: &str = "MEQCIExrRjnYINGXb0L+9uFV7GfhPhNPorFpBrXo7Q8CZYh2AiA96eoA3+km/HFtRF5NLalqsIjFKYvbDzV7tPRVAmxnrw==";
 const CREATE_KEY_ASSERTION: &str = "MEUCIQDkUENQfUm7y4fk+M1Xml2LpCtox3m09reCFClLidiOAwIgOKwT/RR5uwYvHxd9uWtfCAVIKbact5vD7YcA6tqZiXI=";
-const CONFIRM_KEY_ASSERTION: &str = "MEYCIQD9FX/UadYjfvbD0Ual8e7AJSvLDZsyQlYKmalitksBkAIhAMDoQEa+VZsJTi0WHemvVEBk09Lx0b0BoejbHWbvcsgI";
+const CONFIRM_KEY_ASSERTION: &str = "MEQCICANP91P4UZiHscz3YHLqj8PgZixAg1YjI109ESAVd8HAiBIo+lFYZlfEOv9WtFyLs23kBkxSqUNkSJXM02e5DbxSA==";
 const SIGN_ASSERTION: &str = "MEQCIGkPGoSm8cBNfUShXdCOMPcR+ulQQ14wEq+0O/V1yTu7AiAwVqL5mT642qXO4b1I04sAMd9IWZngX/zB2gRHOp9mRw==";
 // {"type":"ConfirmTeeDevice","message": "xx_tee_device_cipher_text_xx"}
 const CONFIRM_TEE_CLIENT_REGISTER_ASSERTION: &str = "LnxoVdHGe+HnCcwS7FCWJecITXf2KlJBoHO7/Jr4DFI=";
@@ -161,6 +150,7 @@ struct Cli {
 #[derive(Subcommand)]
 enum Command {
     RunBasic,
+    VerifyWalletLockSleep,
     RunRootSecret {
         #[arg(long, default_value = KEY_ID)]
         key_id: String,
@@ -267,6 +257,7 @@ struct SignWithoutAssertionRequest {
 #[derive(Debug, Deserialize)]
 struct RegisterTeeDeviceResponse {
     client_ciphertext: String,
+    tee_device_pubkey: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -337,10 +328,10 @@ pub fn generate_tee_assertion(platform: &str, message: &str, times: u8) -> Resul
     let payload: Value = serde_json::from_str(message)?;
     let assertion = match (platform, payload["type"].as_str().unwrap(),times) {
         ("Google", "ConfirmTeeDevice",1) => CONFIRM_DEVICE_ASSERTION.to_owned(),
-        ("Google", "ConfirmTeeDevice",2) => "MEQCIC65mBMi9Vd5c9fZbMBbKsQYEZCEltasrAkOxi0UalENAiBvgT82Lk5EGnRmIxwXP5iix6T5jWmZOAn+i4Kkjgt9UA==".to_owned(),
+        ("Google", "ConfirmTeeDevice",2) => "MEUCIG7uLUEnW0W/XCOzkGBdEQMgNJDDliHwnUm++/+rbqUFAiEA8EdISVrtUfzgJVSPaBfslEFm3mnkX91fUVj2XzQWZuA=".to_owned(),
         ("Google", "CreateWalletKey",_) => CREATE_KEY_ASSERTION.to_owned(),
         ("Google", "ConfirmWalletKey",1) => CONFIRM_KEY_ASSERTION.to_owned(),
-        ("Google", "ConfirmWalletKey",2) => "MEQCIGAhEdUDoWkrWn0IKVYEq+XpdeXUizpWwgj9YUbKqqKJAiAgKIz5tZhM+5IyqzbpHGGYtsDcO7du3SGLo/m2WgG97Q==".to_owned(),
+        ("Google", "ConfirmWalletKey",2) => "MEUCIE7GS41xLuVsh/BOx1S53SIopQ09kzmuWVHVOAUuU4IiAiEA32nFZc73Z5+oYgx9aYs+fHcdouQsWWIY5Kcxm0chKcI=".to_owned(),
         ("Google", "ConfirmWalletKey",3) => CONFIRM_KEY_ASSERTION.to_owned(),
         ("Google", "Sign",_) => SIGN_ASSERTION.to_owned(),
         ("Google", "SignWithoutAssertion",_) => "MEQCIDa9Nx4ZPCTpo2S8rKm/U5gdkYbUQiwCnwydXGAa5WCRAiAse4MU24IJdv65Jspc3RzM0HU8q8EYnzqgi5yCV5FRBw==".to_owned(),
@@ -368,6 +359,9 @@ async fn main() -> Result<()> {
 
     match cli.command {
         Command::RunBasic => run_basic(&client, &cli.base_url).await?,
+        Command::VerifyWalletLockSleep => {
+            run_verify_wallet_lock_sleep(&client, &cli.base_url).await?
+        }
         Command::RunRootSecret { key_id, region } => {
             run_root_secret(&client, &cli.base_url, &key_id, &region).await?
         }
@@ -460,9 +454,267 @@ async fn inject_root_secret_ciphertext_example(
     Ok(())
 }
 
-async fn run_basic(client: &Client, base_url: &str) -> Result<()> {
+async fn prepare_sign_without_assertion_fixture(
+    client: &Client,
+    base_url: &str,
+) -> Result<(String, String)> {
     run_root_secret(client, base_url, KEY_ID, REGION).await?;
 
+    let platform = "Google".to_string();
+    let register_payload = register_tee_device_payload();
+    let attestation = generate_tee_attestation(&platform, &register_payload, 1);
+    let tee_request = TeeClientRegisterRequest {
+        attestation,
+        platform: platform.clone(),
+        issued_at: ISSUED_AT,
+        nonce: NONCE.to_string(),
+        key_id: KEY_ID.to_string(),
+        region: REGION.to_string(),
+    };
+
+    let tee_response = post_json(
+        client,
+        base_url,
+        "/register_tee_device",
+        &tee_request,
+        "register_tee_device_for_wallet_lock",
+    )
+    .await?;
+    let register_data: RegisterTeeDeviceResponse =
+        serde_json::from_value(extract_attested_data(&tee_response)?)?;
+    let device_ciphertext = register_data.client_ciphertext;
+    let confirm_tee_device_payload_str = confirm_tee_device_payload(&device_ciphertext);
+    let device_confirmed_assertion =
+        generate_tee_assertion(&platform, &confirm_tee_device_payload_str, 1)?;
+
+    let create_payload = create_wallet_key_payload();
+    let create_key_assertion = generate_tee_assertion(&platform, &create_payload, 1)?;
+    let pwd_sig = sign_with_password(PASSWORD_SEED, &create_payload)?;
+    let pwd_pubkey = password_pubkey(PASSWORD_SEED);
+    let create_request = CreateWalletKeyRequest {
+        user_id: now_millis() as u64,
+        issued_at: ISSUED_AT,
+        nonce: NONCE.to_string(),
+        key_id: KEY_ID.to_string(),
+        region: REGION.to_string(),
+        pwd_pubkey,
+        pwd_sig,
+        device_ciphertext: device_ciphertext.clone(),
+        device_confirmed_assertion: device_confirmed_assertion.clone(),
+        bind_device_ciphertext: device_ciphertext.clone(),
+        bind_device_confirmed_assertion: device_confirmed_assertion,
+        create_key_assertion,
+        master_key_bond_ciphertext: None,
+        master_key_bond_confirmed_assertion: None,
+    };
+
+    let create_response = post_json(
+        client,
+        base_url,
+        "/create_wallet_key",
+        &create_request,
+        "create_wallet_key_for_wallet_lock",
+    )
+    .await?;
+    let create_data: CreateWalletKeyResponse =
+        serde_json::from_value(extract_attested_data(&create_response)?)?;
+    let key_bond_ciphertext = create_data.key_bond_ciphertext;
+    let confirm_payload = confirm_wallet_key_payload(&key_bond_ciphertext);
+    let key_bond_confirmed_assertion = generate_tee_assertion(&platform, &confirm_payload, 1)?;
+
+    Ok((key_bond_ciphertext, key_bond_confirmed_assertion))
+}
+
+async fn expect_wrong_password_result(
+    client: &Client,
+    base_url: &str,
+    key_bond_ciphertext: &str,
+    key_bond_confirmed_assertion: &str,
+    label: &str,
+    sleep_secs: u64,
+    expected_error: EnclaveError,
+) -> Result<()> {
+    if sleep_secs > 0 {
+        println!("sleep {} seconds before {}", sleep_secs, label);
+        tokio::time::sleep(std::time::Duration::from_secs(sleep_secs)).await;
+    }
+
+    let nonce = format!("{}-{}", label, now_millis());
+    let payload = sign_without_assertion_payload_with_params(
+        &PLACEHOLDER_MESSAGE.as_bytes().encode_bs64(),
+        ISSUED_AT,
+        &nonce,
+    );
+    let request = SignWithoutAssertionRequest {
+        key_bond_ciphertext: key_bond_ciphertext.to_string(),
+        key_bond_confirmed_assertion: key_bond_confirmed_assertion.to_string(),
+        pwd_sig: sign_with_password(NEW_PASSWORD_SEED, &payload)?,
+        message: PLACEHOLDER_MESSAGE.as_bytes().encode_bs64(),
+        issued_at: ISSUED_AT,
+        nonce,
+        region: REGION.to_string(),
+    };
+
+    let response = post_json_allow_business_errors(
+        client,
+        base_url,
+        "/sign_without_assertion",
+        &request,
+        label,
+    )
+    .await?;
+    expect_business_error(
+        &response,
+        expected_error.code(),
+        &expected_error.to_string(),
+    )?;
+    println!("{} => {}", label, expected_error);
+    Ok(())
+}
+
+async fn run_verify_wallet_lock_sleep(client: &Client, base_url: &str) -> Result<()> {
+    // Tier 1: 3 minutes / 2 failures, third request becomes locked.
+    let (key_bond_ciphertext, key_bond_confirmed_assertion) =
+        prepare_sign_without_assertion_fixture(client, base_url).await?;
+    expect_wrong_password_result(
+        client,
+        base_url,
+        &key_bond_ciphertext,
+        &key_bond_confirmed_assertion,
+        "debug_tier1_attempt_1_now",
+        0,
+        EnclaveError::PwdSigVerifyFailed,
+    )
+    .await?;
+    expect_wrong_password_result(
+        client,
+        base_url,
+        &key_bond_ciphertext,
+        &key_bond_confirmed_assertion,
+        "debug_tier1_attempt_2_after_1m",
+        60,
+        EnclaveError::PwdSigVerifyFailed,
+    )
+    .await?;
+    expect_wrong_password_result(
+        client,
+        base_url,
+        &key_bond_ciphertext,
+        &key_bond_confirmed_assertion,
+        "debug_tier1_attempt_3_after_2m",
+        60,
+        EnclaveError::WalletIsLocked,
+    )
+    .await?;
+
+    // Tier 2: 6 minutes / 3 failures. We keep attempts outside the 3-minute
+    // lock window until the third failure, then verify the next request is locked.
+    let (key_bond_ciphertext, key_bond_confirmed_assertion) =
+        prepare_sign_without_assertion_fixture(client, base_url).await?;
+    expect_wrong_password_result(
+        client,
+        base_url,
+        &key_bond_ciphertext,
+        &key_bond_confirmed_assertion,
+        "debug_tier2_attempt_1_now",
+        0,
+        EnclaveError::PwdSigVerifyFailed,
+    )
+    .await?;
+    expect_wrong_password_result(
+        client,
+        base_url,
+        &key_bond_ciphertext,
+        &key_bond_confirmed_assertion,
+        "debug_tier2_attempt_2_after_181s",
+        181,
+        EnclaveError::PwdSigVerifyFailed,
+    )
+    .await?;
+    expect_wrong_password_result(
+        client,
+        base_url,
+        &key_bond_ciphertext,
+        &key_bond_confirmed_assertion,
+        "debug_tier2_attempt_3_after_359s",
+        178,
+        EnclaveError::PwdSigVerifyFailed,
+    )
+    .await?;
+    expect_wrong_password_result(
+        client,
+        base_url,
+        &key_bond_ciphertext,
+        &key_bond_confirmed_assertion,
+        "debug_tier2_attempt_4_after_360s",
+        1,
+        EnclaveError::WalletIsLocked,
+    )
+    .await?;
+
+    // Tier 3: 9 minutes / 4 failures. Same idea, but stretch the timeline so
+    // the fourth failure is the one that arms the lock state.
+    let (key_bond_ciphertext, key_bond_confirmed_assertion) =
+        prepare_sign_without_assertion_fixture(client, base_url).await?;
+    expect_wrong_password_result(
+        client,
+        base_url,
+        &key_bond_ciphertext,
+        &key_bond_confirmed_assertion,
+        "debug_tier3_attempt_1_now",
+        0,
+        EnclaveError::PwdSigVerifyFailed,
+    )
+    .await?;
+    expect_wrong_password_result(
+        client,
+        base_url,
+        &key_bond_ciphertext,
+        &key_bond_confirmed_assertion,
+        "debug_tier3_attempt_2_after_181s",
+        181,
+        EnclaveError::PwdSigVerifyFailed,
+    )
+    .await?;
+    expect_wrong_password_result(
+        client,
+        base_url,
+        &key_bond_ciphertext,
+        &key_bond_confirmed_assertion,
+        "debug_tier3_attempt_3_after_359s",
+        178,
+        EnclaveError::PwdSigVerifyFailed,
+    )
+    .await?;
+    expect_wrong_password_result(
+        client,
+        base_url,
+        &key_bond_ciphertext,
+        &key_bond_confirmed_assertion,
+        "debug_tier3_attempt_4_after_539s",
+        180,
+        EnclaveError::PwdSigVerifyFailed,
+    )
+    .await?;
+    expect_wrong_password_result(
+        client,
+        base_url,
+        &key_bond_ciphertext,
+        &key_bond_confirmed_assertion,
+        "debug_tier3_attempt_5_after_540s",
+        1,
+        EnclaveError::WalletIsLocked,
+    )
+    .await?;
+
+    println!(
+        "debug tier 4 (12 minutes / 8 failures) is not independently reachable via live requests because shorter debug windows lock first"
+    );
+    println!("wallet lock debug-window verification finished");
+    Ok(())
+}
+
+async fn run_basic(client: &Client, base_url: &str) -> Result<()> {
     let platform = "Google".to_string();
     //1) register tee device
     let register_tee_device_payload = register_tee_device_payload();
@@ -607,7 +859,7 @@ async fn run_basic(client: &Client, base_url: &str) -> Result<()> {
     println!("modify_password_response: {:?}", modify_password_response);
     let new_key_bonds: ModifyPasswordResponse =
         serde_json::from_value(extract_attested_data(&modify_password_response)?)?;
-    println!("new_key_bonds: {:?}", new_key_bonds);
+    println!("{}_new_key_bonds: {:?}", line!(), new_key_bonds);
     // 重新签名新的key_bond_ciphertext
     let new_key_bond_ciphertext = new_key_bonds.new_key_bonds[0].key_bond_ciphertext.clone();
     let confirm_create_wallet_key_payload = confirm_wallet_key_payload(&new_key_bond_ciphertext);
@@ -676,7 +928,7 @@ async fn run_basic(client: &Client, base_url: &str) -> Result<()> {
     let register_data: RegisterTeeDeviceResponse =
         serde_json::from_value(extract_attested_data(&tee_response)?)?;
     let new_device_ciphertext = register_data.client_ciphertext;
-    println!("{}", device_ciphertext);
+    println!("{}", new_device_ciphertext);
     //由于每次device_ciphertext 都会变更，此处使用一个固定结果
     let new_device_ciphertext = FIX_NEW_DEVICE_CIPHERTEXT.to_owned();
     let confirm_tee_device_payload_str = confirm_tee_device_payload(&new_device_ciphertext);
@@ -685,10 +937,11 @@ async fn run_basic(client: &Client, base_url: &str) -> Result<()> {
         generate_tee_assertion(&platform, &confirm_tee_device_payload_str, 2)?;
     //6.2) reovery wallet
     let recover_payload = recover_wallet_payload();
-    println!("modify_payload: {}", modify_payload);
+    println!("recover_payload: {}", recover_payload);
     let pwd_recover_sig = sign_with_password(NEW_PASSWORD_SEED, &recover_payload)?;
     let recover_assertion = generate_tee_assertion(&platform, &recover_payload, 1)?;
 
+    println!("now: {}", now_millis());
     let recover_wallet_request = RecoverWalletRequest {
         new_device_ciphertext: new_device_ciphertext.clone(),
         new_device_confirmed_assertion: new_device_confirmed_assertion.clone(),
@@ -716,6 +969,7 @@ async fn run_basic(client: &Client, base_url: &str) -> Result<()> {
         "recover_wallet",
     )
     .await?;
+    println!("now: {}", now_millis());
     println!("recover_wallet_response: {:?}", recover_wallet_response);
     let recover_wallet_data: ModifyPasswordResponse =
         serde_json::from_value(extract_attested_data(&recover_wallet_response)?)?;
@@ -777,6 +1031,34 @@ async fn run_basic(client: &Client, base_url: &str) -> Result<()> {
     println!("file={},line={}", file!(), line!());
     expect_business_error(
         &wrong_attempt_response_2,
+        EnclaveError::PwdSigVerifyFailed.code(),
+        &EnclaveError::PwdSigVerifyFailed.to_string(),
+    )?;
+    let wrong_attempt_nonce_3 = "wrong-sign-without-assertion-3";
+    let wrong_attempt_payload_3 = sign_without_assertion_payload_with_params(
+        &PLACEHOLDER_MESSAGE.as_bytes().encode_bs64(),
+        ISSUED_AT,
+        wrong_attempt_nonce_3,
+    );
+    let wrong_attempt_request_3 = SignWithoutAssertionRequest {
+        key_bond_ciphertext: new_key_bond_ciphertext.clone(),
+        key_bond_confirmed_assertion: new_key_bond_confirmed_assertion.clone(),
+        pwd_sig: sign_with_password(PASSWORD_SEED, &wrong_attempt_payload_3)?,
+        message: PLACEHOLDER_MESSAGE.as_bytes().encode_bs64(),
+        issued_at: ISSUED_AT,
+        nonce: wrong_attempt_nonce_3.to_string(),
+        region: REGION.to_string(),
+    };
+    let wrong_attempt_response_3 = post_json_allow_business_errors(
+        client,
+        base_url,
+        "/sign_without_assertion",
+        &wrong_attempt_request_3,
+        "sign_without_assertion_wrong_pwd_attempt_3",
+    )
+    .await?;
+    expect_business_error(
+        &wrong_attempt_response_3,
         EnclaveError::WalletIsLocked.code(),
         &EnclaveError::WalletIsLocked.to_string(),
     )?;

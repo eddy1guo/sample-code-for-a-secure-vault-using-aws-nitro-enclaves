@@ -163,7 +163,7 @@ impl RealWorldSample {
         let requirements = KeyAttestationRequirements {
             challenge: &challenge,
             root_pems: &[],
-            //todo: 动态配置
+            //jin
             expected_package_name: Some("com.chainlessandroid.app"),
             expected_signature_digests: &[],
             require_hardware_backed: true,
@@ -171,7 +171,6 @@ impl RealWorldSample {
         };
 
         let verified = verify_google_attestation(&chain, &requirements, None)?;
-        //todo: return error
         assert_eq!(verified.challenge, challenge);
         assert_eq!(verified.public_key_spki_der, expected_public_key);
         assert!(self.hardware_backed);

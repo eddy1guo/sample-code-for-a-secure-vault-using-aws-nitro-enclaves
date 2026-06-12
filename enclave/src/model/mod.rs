@@ -78,16 +78,27 @@ static NONCE_CACHE: LazyLock<RwLock<HashMap<String, i64>>> =
 
 const FAILURE_SWEEP_INTERVAL_SECONDS: i64 = 10 * 60;
 const MAX_FAILED_PWD_SIG_ACCOUNTS: usize = 100_000;
+const FAILURE_WINDOW_3_MINUTES: i64 = 3 * 60;
+const FAILURE_WINDOW_6_MINUTES: i64 = 6 * 60;
+const FAILURE_WINDOW_9_MINUTES: i64 = 9 * 60;
+const FAILURE_WINDOW_15_MINUTES: i64 = 15 * 60;
 const FAILURE_WINDOW_10_MINUTES: i64 = 10 * 60;
 const FAILURE_WINDOW_60_MINUTES: i64 = 60 * 60;
 const FAILURE_WINDOW_24_HOURS: i64 = 24 * 60 * 60;
 const FAILURE_WINDOW_1_WEEK: i64 = 7 * 24 * 60 * 60;
 
-const FAILURE_WINDOWS: &[(i64, usize)] = &[
+const PROD_FAILURE_WINDOWS: &[(i64, usize)] = &[
     (FAILURE_WINDOW_10_MINUTES, 2),
     (FAILURE_WINDOW_60_MINUTES, 3),
     (FAILURE_WINDOW_24_HOURS, 4),
     (FAILURE_WINDOW_1_WEEK, 8),
+];
+
+const DEBUG_FAILURE_WINDOWS: &[(i64, usize)] = &[
+    (FAILURE_WINDOW_3_MINUTES, 2),
+    (FAILURE_WINDOW_6_MINUTES, 3),
+    (FAILURE_WINDOW_9_MINUTES, 4),
+    (FAILURE_WINDOW_15_MINUTES, 8),
 ];
 
 #[derive(Default)]
@@ -138,14 +149,20 @@ fn prune_failures(attempts: &mut Vec<i64>, now: i64) {
     attempts.retain(|ts| now.saturating_sub(*ts) <= FAILURE_WINDOW_1_WEEK);
 }
 
-fn is_locked_attempts(attempts: &[i64], now: i64) -> bool {
-    FAILURE_WINDOWS.iter().any(|(window_secs, limit)| {
+fn is_locked_attempts(attempts: &[i64], now: i64) -> Result<bool> {
+    let failure_windows = if is_debug_mode()? {
+        DEBUG_FAILURE_WINDOWS
+    } else {
+        PROD_FAILURE_WINDOWS
+    };
+    let is_locked = failure_windows.iter().any(|(window_secs, limit)| {
         attempts
             .iter()
             .filter(|ts| now.saturating_sub(**ts) <= *window_secs)
             .count()
             >= *limit
-    })
+    });
+    Ok(is_locked)
 }
 
 fn with_failure_cache<T>(f: impl FnOnce(&mut FailureCache) -> Result<T>) -> Result<T> {
@@ -188,7 +205,7 @@ fn is_account_locked(account_key: &str, now: i64) -> Result<bool> {
         let locked = match cache.accounts.get_mut(account_key) {
             Some(attempts) => {
                 prune_failures(attempts, now);
-                !attempts.is_empty() && is_locked_attempts(attempts, now)
+                !attempts.is_empty() && is_locked_attempts(attempts, now)?
             }
             None => false,
         };
@@ -216,7 +233,7 @@ fn record_failed_pwd_sig(account_key: &str, now: i64) -> Result<bool> {
         let attempts = cache.accounts.entry(account_key.to_owned()).or_default();
         prune_failures(attempts, now);
         attempts.push(now);
-        Ok(is_locked_attempts(attempts, now))
+        is_locked_attempts(attempts, now)
     })
 }
 
@@ -561,9 +578,7 @@ pub fn verify_pwd_sig_with_lock(
     }
 
     if let Err(err) = verify_pwd_sig(data, pwd_pubkey, pwd_sig) {
-        if record_failed_pwd_sig(&account_key, now)? {
-            return Err(anyhow!(crate::error::Error::WalletIsLocked.to_json()));
-        }
+        record_failed_pwd_sig(&account_key, now)?;
         return Err(err);
     }
 
@@ -574,10 +589,14 @@ pub fn verify_pwd_sig_with_lock(
 #[cfg(test)]
 mod tests {
     use super::{
-        ED25519_PREFIX, Ed25519Title, FAILURE_WINDOW_1_WEEK, FAILURE_WINDOW_10_MINUTES,
-        FAILURE_WINDOW_24_HOURS, FAILURE_WINDOW_60_MINUTES, FailureCache,
-        evict_oldest_failure_account, is_locked_attempts, prune_failures,
+        DEBUG_FAILURE_WINDOWS, ED25519_PREFIX, Ed25519Title, FAILED_PWD_SIG_CACHE,
+        FAILURE_WINDOW_1_WEEK, FAILURE_WINDOW_10_MINUTES, FAILURE_WINDOW_24_HOURS,
+        FAILURE_WINDOW_60_MINUTES, FailureCache, NONCE_CACHE, account_lock_key,
+        clear_failed_pwd_sig, evict_oldest_failure_account, is_account_locked, is_locked_attempts,
+        prune_failures, verify_pwd_sig_with_lock,
     };
+    use crate::codec::bs58::EncodeBs58;
+    use crate::ed25519;
 
     #[test]
     fn remove_title_keeps_plain_value() {
@@ -604,21 +623,21 @@ mod tests {
     }
 
     #[test]
-    fn locks_after_two_failures_in_ten_minutes() {
+    fn locks_after_two_failures_in_prod_ten_minutes() {
         let now = 10_000;
         let attempts = vec![now - 60, now];
-        assert!(is_locked_attempts(&attempts, now));
+        assert!(is_locked_attempts(&attempts, now).unwrap());
     }
 
     #[test]
-    fn locks_after_three_failures_in_sixty_minutes() {
+    fn locks_after_three_failures_in_prod_sixty_minutes() {
         let now = 20_000;
         let attempts = vec![now - FAILURE_WINDOW_10_MINUTES - 1, now - 30 * 60, now];
-        assert!(is_locked_attempts(&attempts, now));
+        assert!(is_locked_attempts(&attempts, now).unwrap());
     }
 
     #[test]
-    fn locks_after_four_failures_in_twenty_four_hours() {
+    fn locks_after_four_failures_in_prod_twenty_four_hours() {
         let now = 30_000;
         let attempts = vec![
             now - FAILURE_WINDOW_60_MINUTES - 1,
@@ -626,14 +645,14 @@ mod tests {
             now - 2 * 60 * 60,
             now,
         ];
-        assert!(is_locked_attempts(&attempts, now));
+        assert!(is_locked_attempts(&attempts, now).unwrap());
     }
 
     #[test]
-    fn locks_after_eight_failures_in_one_week() {
+    fn locks_after_eight_failures_in_prod_one_week() {
         let now = 40_000;
         let attempts = (0..8).map(|offset| now - offset * 100).collect::<Vec<_>>();
-        assert!(is_locked_attempts(&attempts, now));
+        assert!(is_locked_attempts(&attempts, now).unwrap());
     }
 
     #[test]
@@ -652,7 +671,7 @@ mod tests {
             now - FAILURE_WINDOW_60_MINUTES - 1,
             now - FAILURE_WINDOW_10_MINUTES - 1,
         ];
-        assert!(!is_locked_attempts(&attempts, now));
+        assert!(!is_locked_attempts(&attempts, now).unwrap());
     }
 
     #[test]
@@ -665,5 +684,64 @@ mod tests {
 
         assert!(!cache.accounts.contains_key("old"));
         assert!(cache.accounts.contains_key("new"));
+    }
+
+    #[test]
+    fn third_failure_returns_wallet_locked_after_two_pwd_errors() {
+        let user_id = 42;
+        let payload = r#"{"type":"SignWithoutAssertion","message":"bG9jay10ZXN0","issued_at":1779876890,"nonce":"wallet-lock-unit"}"#;
+        let (prikey, pubkey) = ed25519::new_key_pair_by_seed("123456");
+        let good_sig = ed25519::sign(&prikey, payload.as_bytes())
+            .unwrap()
+            .encode_bs58();
+        let bad_sig = ed25519::sign(&prikey, b"wrong-payload")
+            .unwrap()
+            .encode_bs58();
+        let pwd_pubkey = pubkey.encode_bs58();
+        let account_key = account_lock_key(user_id, &pwd_pubkey);
+
+        NONCE_CACHE.blocking_write().clear();
+        clear_failed_pwd_sig(&account_key).unwrap();
+        {
+            let mut cache = FAILED_PWD_SIG_CACHE.lock().unwrap();
+            cache.accounts.clear();
+            cache.last_sweep_at = 0;
+        }
+
+        let first = verify_pwd_sig_with_lock(user_id, payload, &pwd_pubkey, &bad_sig)
+            .unwrap_err()
+            .to_string();
+        assert!(first.contains("PwdSigVerifyFailed"));
+        assert!(!is_account_locked(&account_key, crate::functions::now_secs()).unwrap());
+
+        let second = verify_pwd_sig_with_lock(user_id, payload, &pwd_pubkey, &bad_sig)
+            .unwrap_err()
+            .to_string();
+        assert!(second.contains("PwdSigVerifyFailed"));
+        assert!(is_account_locked(&account_key, crate::functions::now_secs()).unwrap());
+
+        let third = verify_pwd_sig_with_lock(user_id, payload, &pwd_pubkey, &bad_sig)
+            .unwrap_err()
+            .to_string();
+        assert!(third.contains("WalletIsLocked"));
+
+        // successful verification still works after cache cleanup in test setup
+        clear_failed_pwd_sig(&account_key).unwrap();
+        let fourth = verify_pwd_sig_with_lock(user_id, payload, &pwd_pubkey, &good_sig);
+        assert!(fourth.is_ok());
+    }
+
+    #[test]
+    fn debug_windows_lock_after_two_failures_in_three_minutes() {
+        let now: i64 = 10_000;
+        let attempts = vec![now - 60, now];
+        let is_locked = DEBUG_FAILURE_WINDOWS.iter().any(|(window_secs, limit)| {
+            attempts
+                .iter()
+                .filter(|ts| now.saturating_sub(**ts) <= *window_secs)
+                .count()
+                >= *limit
+        });
+        assert!(is_locked);
     }
 }
