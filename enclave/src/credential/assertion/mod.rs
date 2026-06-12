@@ -2,18 +2,13 @@ pub mod apple;
 pub mod google;
 
 use anyhow::anyhow;
-use serde_json::json;
 
-use crate::error::Error;
 use crate::{
-    codec::{
-        bs64::{DecodeBs64, EncodeBs64},
-        hex::DecodeHex,
-    },
-    credential::common::{Platform, TeeClient, Usage, sha256_bytes},
+    codec::bs64::EncodeBs64,
+    credential::common::{Platform, sha256_bytes},
 };
 
-use crate::credential::aws::{get_attestation_document, is_debug_mode};
+use crate::credential::aws::is_debug_mode;
 
 pub fn verify_assertion(
     platform: Platform,
@@ -36,14 +31,14 @@ pub fn verify_assertion(
                 app_id,
                 None,
             )
-            .map(|x| Some(x))
+            .map(Some)
             .map_err(|e| {
                 println!("{:?}", e);
                 anyhow!(crate::error::Error::AssertionVerifyFailed.to_json())
             })
         }
         Platform::Google => {
-            google::verify_assertion_base64(&pubkey_base64, &payload, &assertion_object_base64)
+            google::verify_assertion_base64(pubkey_base64, payload, assertion_object_base64)
                 .map_err(|e| {
                     println!("{:?}", e);
                     anyhow!(crate::error::Error::AssertionVerifyFailed.to_json())

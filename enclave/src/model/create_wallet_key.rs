@@ -1,13 +1,11 @@
 use anyhow::{Result, anyhow, bail};
 use serde::{Deserialize, Serialize};
-use serde_json::json;
 
-use crate::codec::bs58::{DecodeBs58, EncodeBs58};
+use crate::codec::bs58::EncodeBs58;
 use crate::codec::json::JsonSerialize;
 use crate::credential::assertion::verify_assertion;
-use crate::credential::aws::is_debug_mode;
 use crate::credential::common::{Usage, WalletKeyBond};
-use crate::ed25519::{self, new_key_pair};
+use crate::ed25519::new_key_pair;
 use crate::error::Error;
 use crate::kms::get_wallet_key_bond;
 use crate::kms::{encrypt_with_root_secret, get_tee_client};
@@ -119,29 +117,26 @@ impl EnclaveRequest<Request> {
         println!("file={},line={}", file!(), line!());
 
         //非强制行为，有应用层决定是否来和master的pwd_pubkey保持一致,这样体验更好，跳过也不影响安全
-        match (
+        if let (Some(ciphertext), Some(confirm_assertion)) = (
             &self.request.master_key_bond_ciphertext,
             &self.request.master_key_bond_confirmed_assertion,
         ) {
-            (Some(ciphertext), Some(confirm_assertion)) => {
-                let master_key_bond =
-                    get_wallet_key_bond(&self.credential, &ciphertext, &self.request.region)?;
-                verify_assertion(
-                    master_key_bond.client_platform.clone(),
-                    &master_key_bond.app_id,
-                    &confirm_assertion,
-                    &master_key_bond.master_device_pubkey,
-                    &self.master_key_bond_confirm_payload(ciphertext.clone()),
-                )?;
-                if self.request.pwd_pubkey != master_key_bond.pwd_pubkey {
-                    bail!(Error::PasswordDifferentWithMasterKey.to_json())
-                }
+            let master_key_bond =
+                get_wallet_key_bond(&self.credential, ciphertext, &self.request.region)?;
+            verify_assertion(
+                master_key_bond.client_platform.clone(),
+                &master_key_bond.app_id,
+                confirm_assertion,
+                &master_key_bond.master_device_pubkey,
+                &self.master_key_bond_confirm_payload(ciphertext.clone()),
+            )?;
+            if self.request.pwd_pubkey != master_key_bond.pwd_pubkey {
+                bail!(Error::PasswordDifferentWithMasterKey.to_json())
             }
-            _ => {}
         };
 
         //获取当前的设备证明
-        let client = get_tee_client(&self, &self.request.device_ciphertext)?;
+        let client = get_tee_client(self, &self.request.device_ciphertext)?;
         //先验证当前客户端的assertion
         let _counter = verify_assertion(
             client.platform.clone(),
@@ -153,7 +148,7 @@ impl EnclaveRequest<Request> {
         println!("file={},line={}", file!(), line!());
 
         //验证被绑定客户端的assertion
-        let bind_client = get_tee_client(&self, &self.request.bind_device_ciphertext)?;
+        let bind_client = get_tee_client(self, &self.request.bind_device_ciphertext)?;
         //先验证客户端对kms加密结果的认证
         let _counter = verify_assertion(
             bind_client.platform.clone(),

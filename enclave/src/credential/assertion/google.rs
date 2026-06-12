@@ -27,7 +27,7 @@ pub fn verify_assertion_base64(
 
     let public_key = PKey::public_key_from_der(&public_key_spki_der)?;
     let mut verifier = OpenSslVerifier::new(MessageDigest::sha256(), &public_key)?;
-    verifier.update(&message.as_bytes())?;
+    verifier.update(message.as_bytes())?;
     if verifier.verify(&signature_der)? {
         bail!("verify_attested_base64 failed")
     }

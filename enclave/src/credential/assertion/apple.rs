@@ -48,7 +48,7 @@ pub fn verify_assertion(
     public_key_spki_der: &[u8],
     app_id: &str,
     client_data_hash: &[u8],
-    previous_counter: Option<u32>,
+    _previous_counter: Option<u32>,
 ) -> Result<VerifiedAssertion> {
     let assertion = parse_assertion_object(assertion_object)?;
     let auth_data = parse_assertion_authenticator_data(assertion.authenticator_data.as_slice())?;
@@ -106,7 +106,7 @@ pub fn verify_assertion_base64(
     let res = verify_assertion(
         &assertion_object,
         &public_key_spki_der,
-        &app_id,
+        app_id,
         &client_data_hash,
         previous_counter,
     )?;

@@ -3,7 +3,7 @@
 
 use aws_lc_rs::digest;
 use cel_interpreter::{FunctionContext, ResolveResult, extractors::This};
-use chrono::{DateTime, FixedOffset, NaiveDate, NaiveTime, TimeZone, Timelike, Utc};
+use chrono::{DateTime, FixedOffset, NaiveDate, NaiveTime, TimeZone, Utc};
 use data_encoding::{BASE64, HEXLOWER};
 use std::sync::Arc;
 

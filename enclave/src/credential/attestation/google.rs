@@ -116,7 +116,7 @@ pub fn verify_attestation2(
 ) -> Result<(String, String)> {
     let chain = attestation_cert_chain_base64
         .iter()
-        .map(|cert| cert.decode_bs64().map_err(anyhow::Error::from))
+        .map(|cert| cert.decode_bs64())
         .collect::<Result<Vec<Vec<u8>>>>()?;
     let requirements = KeyAttestationRequirements {
         challenge: client_data_bytes,
@@ -158,7 +158,7 @@ impl RealWorldSample {
         let chain = self
             .attestation_cert_chain_base64
             .iter()
-            .map(|cert| cert.decode_bs64().map_err(anyhow::Error::from))
+            .map(|cert| cert.decode_bs64())
             .collect::<Result<Vec<Vec<u8>>>>()?;
         let requirements = KeyAttestationRequirements {
             challenge: &challenge,
@@ -204,7 +204,7 @@ impl RealWorldSample {
         let chain = self
             .attestation_cert_chain_base64
             .iter()
-            .map(|cert| cert.decode_bs64().map_err(anyhow::Error::from))
+            .map(|cert| cert.decode_bs64())
             .collect::<Result<Vec<Vec<u8>>>>()?;
         let requirements = KeyAttestationRequirements {
             challenge: &challenge,

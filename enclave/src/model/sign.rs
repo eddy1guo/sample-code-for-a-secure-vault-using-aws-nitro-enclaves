@@ -1,11 +1,9 @@
 use anyhow::{Result, anyhow};
 use serde::{Deserialize, Serialize};
-use serde_json::json;
 
 use crate::codec::bs58::{DecodeBs58, EncodeBs58};
 use crate::codec::bs64::DecodeBs64;
 use crate::credential::assertion::verify_assertion;
-use crate::credential::aws::is_debug_mode;
 use crate::credential::common::Usage;
 use crate::ed25519;
 use crate::kms::get_wallet_key_bond;

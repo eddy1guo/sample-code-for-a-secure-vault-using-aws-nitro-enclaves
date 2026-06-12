@@ -4,7 +4,6 @@ use aws_nitro_enclaves_nsm_api::driver;
 use serde::Deserialize;
 use serde_bytes::ByteBuf;
 use std::collections::BTreeMap;
-use std::ops::Not;
 use std::sync::Mutex;
 
 static NITRO_DEBUG_MODE: Mutex<Option<bool>> = Mutex::new(None);
@@ -66,7 +65,7 @@ pub fn get_attestation_document(user_data: &[u8]) -> Result<Vec<u8>> {
         Response::Attestation { document } => {
             //let cose_sign1 = parse_cose_sign1_view(&document)?;
             //verify_attestation(&cose_sign1)?;
-            let doc_hex: String = hex::ToHex::encode_hex(&document);
+            let _doc_hex: String = hex::ToHex::encode_hex(&document);
             //println!("cose_hex1: {}", doc_hex);
             Ok(document)
         }
@@ -116,7 +115,7 @@ fn detect_nitro_debug_mode() -> Result<bool> {
 
 fn parse_cose_sign1(raw: &[u8]) -> Result<CoseSign1Doc> {
     let arr: Vec<serde_cbor::Value> = serde_cbor::from_slice(raw)?;
-    for (i, v) in arr.iter().enumerate() {
+    for _v in arr.iter() {
         //println!("parse_cose_sign1_value1: {} ----> {:?}", i, v);
     }
     let to_bytes = |v: &serde_cbor::Value| match v {
@@ -154,7 +153,7 @@ pub fn parse_cose_sign1_view(raw: &[u8]) -> Result<CoseSign1DocView> {
             .payload
             .cabundle
             .iter()
-            .map(|x| (hex::ToHex::encode_hex(x)))
+            .map(hex::ToHex::encode_hex)
             .collect(),
         user_data: doc
             .payload

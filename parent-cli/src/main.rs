@@ -788,7 +788,7 @@ async fn run_basic(client: &Client, base_url: &str) -> Result<()> {
     let create_data: CreateWalletKeyResponse =
         serde_json::from_value(extract_attested_data(&create_response)?)?;
     // 这里的key_bond_ciphertext也是需要固定下来
-    let key_bond_ciphertext = create_data.key_bond_ciphertext;
+    let _key_bond_ciphertext = create_data.key_bond_ciphertext;
     let key_bond_ciphertext = FIX_KEY_BOND_CIPHERTEXT.to_string();
     let confirm_create_wallet_key_payload = confirm_wallet_key_payload(&key_bond_ciphertext);
     println!(
@@ -839,7 +839,7 @@ async fn run_basic(client: &Client, base_url: &str) -> Result<()> {
     let modify_password_request = ModifyPasswordRequest {
         key_bonds: key_bonds.clone(),
         current_pwd_sig,
-        new_pwd_pubkey: new_pwd_pubkey,
+        new_pwd_pubkey,
         new_pwd_sig,
         assertion: modify_password_assertion,
         issued_at: ISSUED_AT,
@@ -1086,11 +1086,10 @@ async fn post_json<T: Serialize>(
     label: &str,
 ) -> Result<ApiResponse> {
     let parsed = send_json_request(client, base_url, path, payload, label).await?;
-    if let Some(errors) = &parsed.errors {
-        if !errors.is_empty() {
+    if let Some(errors) = &parsed.errors
+        && !errors.is_empty() {
             bail!("{} returned business errors: {}", label, errors.join("; "));
         }
-    }
     Ok(parsed)
 }
 

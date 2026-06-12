@@ -8,9 +8,6 @@
 
 pub mod ffi;
 
-use aws_config::Region;
-use aws_credential_types::Credentials;
-use aws_sdk_kms::{self, primitives::Blob};
 use std::fmt;
 
 #[cfg(target_env = "musl")]
@@ -614,12 +611,12 @@ pub fn kms_encrypt_old(
 }
 #[cfg(not(target_env = "musl"))]
 pub fn kms_encrypt(
-    aws_region: &[u8],
-    aws_key_id: &[u8],
-    aws_secret_key: &[u8],
-    aws_session_token: &[u8],
-    ciphertext: &[u8],
-    key_id: &str,
+    _aws_region: &[u8],
+    _aws_key_id: &[u8],
+    _aws_secret_key: &[u8],
+    _aws_session_token: &[u8],
+    _ciphertext: &[u8],
+    _key_id: &str,
 ) -> Result<Vec<u8>, Error> {
     Err(Error::SdkInitError)
 }

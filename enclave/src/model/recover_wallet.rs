@@ -1,16 +1,12 @@
 use anyhow::{Result, anyhow};
 use serde::{Deserialize, Serialize};
-use serde_json::json;
 
-use crate::codec::bs58::{DecodeBs58, EncodeBs58};
-use crate::codec::bs64::DecodeBs64;
 use crate::codec::json::JsonSerialize;
 use crate::credential::assertion::verify_assertion;
-use crate::credential::aws::is_debug_mode;
 use crate::credential::common::Usage;
-use crate::ed25519::{self, ExtractPubkey};
+use crate::ed25519::ExtractPubkey;
 use crate::functions::now_millis;
-use crate::kms::{encrypt_with_root_secret, get_tee_client, get_tee_client2, get_wallet_key_bond};
+use crate::kms::{encrypt_with_root_secret, get_tee_client2, get_wallet_key_bond};
 use crate::model::{
     ConfirmedKeyBond, DecryptRequire, Ed25519Title, EnclaveRequest, validate_nonce_issued_at,
 };
@@ -113,7 +109,7 @@ impl EnclaveRequest<Request> {
         ))?;
         println!("file={},line={}", file!(), line!());
 
-        let new_device = get_tee_client2(&self)?;
+        let new_device = get_tee_client2(self)?;
 
         //先验证新客户端对kms加密结果的认证
         let _counter = verify_assertion(

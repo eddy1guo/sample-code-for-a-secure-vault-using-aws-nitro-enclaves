@@ -1,4 +1,3 @@
-use std::str::FromStr;
 
 use anyhow::{Result, bail};
 use ed25519_dalek::{PublicKey, SecretKey, Signer as DalekSigner, Verifier};
@@ -6,7 +5,6 @@ use openssl::sha::sha256;
 use rand::rngs::OsRng;
 
 use crate::codec::bs58::{DecodeBs58, EncodeBs58};
-use crate::codec::hex::{DecodeHex, EncodeHex};
 
 pub fn new_key_pair_by_seed(seed: &str) -> (Vec<u8>, Vec<u8>) {
     assert!(
@@ -14,7 +12,7 @@ pub fn new_key_pair_by_seed(seed: &str) -> (Vec<u8>, Vec<u8>) {
         "seed must be a 6-digit numeric string"
     );
 
-    let secret_seed = sha256(format!("{seed}").as_bytes());
+    let secret_seed = sha256(seed.to_string().as_bytes());
     let secret_key = SecretKey::from_bytes(&secret_seed).expect("sha256 output must be 32 bytes");
     let public_key = PublicKey::from(&secret_key);
 
@@ -34,13 +32,13 @@ pub fn new_key_pair() -> (Vec<u8>, Vec<u8>) {
 }
 
 pub fn sign(prikey_bytes: &[u8], data: &[u8]) -> Result<Vec<u8>> {
-    let secret_key = ed25519_dalek::Keypair::from_bytes(&prikey_bytes)?;
+    let secret_key = ed25519_dalek::Keypair::from_bytes(prikey_bytes)?;
     let sig = secret_key.sign(data).to_bytes().to_vec();
     Ok(sig)
 }
 
 pub fn verify(data: &str, public_key_bytes: &[u8], sig: &[u8]) -> Result<bool> {
-    let public_key = ed25519_dalek::PublicKey::from_bytes(&public_key_bytes)?;
+    let public_key = ed25519_dalek::PublicKey::from_bytes(public_key_bytes)?;
     let signature = ed25519_dalek::Signature::from_bytes(sig)?;
     if public_key.verify(data.as_bytes(), &signature).is_ok() {
         Ok(true)

@@ -1,6 +1,5 @@
 use anyhow::{Result, anyhow};
 use serde::{Deserialize, Serialize};
-use serde_json::json;
 
 use crate::codec::json::JsonSerialize;
 use crate::credential::attestation::verify_attestation;

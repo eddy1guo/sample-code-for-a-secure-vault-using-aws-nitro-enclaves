@@ -161,7 +161,7 @@ pub fn verify_attestation(
     }
 
     let public_key_str =
-        parse_attestation_object_bytes(&attestation_object)?.public_key_spki_der_base64;
+        parse_attestation_object_bytes(attestation_object)?.public_key_spki_der_base64;
 
     let leaf = X509::from_der(&object.att_stmt.x5c[0])?;
     let intermediates = object
@@ -204,9 +204,7 @@ pub fn verify_attestation(
         sha256_bytes(&public_key_spki_der),
         sha256_bytes(&public_key_raw),
     ];
-    if !candidate_hashes
-        .iter()
-        .any(|candidate| *candidate == auth_data.credential_id)
+    if !candidate_hashes.contains(&auth_data.credential_id)
     {
         bail!("credential id does not match the attested certificate public key");
     }
@@ -489,10 +487,10 @@ fn integer_field(map: &std::collections::BTreeMap<Value, Value>, key: i128) -> R
     }
 }
 
-fn bytes_field<'a>(
-    map: &'a std::collections::BTreeMap<Value, Value>,
+fn bytes_field(
+    map: &std::collections::BTreeMap<Value, Value>,
     key: i128,
-) -> Result<&'a [u8]> {
+) -> Result<&[u8]> {
     match map.get(&Value::Integer(key)) {
         Some(Value::Bytes(value)) => Ok(value.as_slice()),
         Some(_) => bail!("COSE field {key} is not a byte string"),
@@ -603,22 +601,18 @@ fn extract_app_id_candidates(raw: &[u8]) -> Vec<String> {
             continue;
         }
 
-        if let Some(begin) = start.take() {
-            if let Some(candidate) = normalize_app_id_candidate(&text[begin..idx]) {
-                if !candidates.iter().any(|existing| existing == &candidate) {
+        if let Some(begin) = start.take()
+            && let Some(candidate) = normalize_app_id_candidate(&text[begin..idx])
+                && !candidates.iter().any(|existing| existing == &candidate) {
                     candidates.push(candidate);
                 }
-            }
-        }
     }
 
-    if let Some(begin) = start {
-        if let Some(candidate) = normalize_app_id_candidate(&text[begin..]) {
-            if !candidates.iter().any(|existing| existing == &candidate) {
+    if let Some(begin) = start
+        && let Some(candidate) = normalize_app_id_candidate(&text[begin..])
+            && !candidates.iter().any(|existing| existing == &candidate) {
                 candidates.push(candidate);
             }
-        }
-    }
 
     candidates
 }

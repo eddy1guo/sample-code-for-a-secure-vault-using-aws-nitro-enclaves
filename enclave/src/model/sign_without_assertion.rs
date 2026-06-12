@@ -1,11 +1,9 @@
 use anyhow::{Result, anyhow};
 use serde::{Deserialize, Serialize};
-use serde_json::json;
 
 use crate::codec::bs58::{DecodeBs58, EncodeBs58};
 use crate::codec::bs64::DecodeBs64;
 use crate::credential::assertion::verify_assertion;
-use crate::credential::aws::is_debug_mode;
 use crate::credential::common::Usage;
 use crate::ed25519;
 use crate::kms::get_wallet_key_bond;
@@ -16,8 +14,6 @@ pub struct Request {
     pub key_bond_ciphertext: String,
     pub key_bond_confirmed_assertion: String,
     pub pwd_sig: String,
-    //todo: 防止服务侧恶意撞击导致锁定所有用户，这里应该要有assertion
-    // pub new_device_sign_assertion: String,
     pub message: String,
     pub issued_at: i64,
     pub nonce: String,

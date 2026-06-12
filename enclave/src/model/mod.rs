@@ -34,7 +34,6 @@ use std::collections::HashMap;
 use std::fmt;
 use std::ops::Not;
 use std::sync::{LazyLock, Mutex};
-use std::time::{SystemTime, UNIX_EPOCH};
 
 use anyhow::{Error, Result, anyhow, bail};
 use aws_lc_rs::signature::{
@@ -42,7 +41,6 @@ use aws_lc_rs::signature::{
     EcdsaSigningAlgorithm,
 };
 use data_encoding::HEXLOWER;
-use ed25519_dalek::Keypair;
 use rayon::prelude::*;
 use rustls::crypto::aws_lc_rs::hpke::{
     DH_KEM_P256_HKDF_SHA256_AES_256, DH_KEM_P384_HKDF_SHA384_AES_256,
@@ -55,14 +53,12 @@ use tokio::sync::RwLock;
 use zeroize::ZeroizeOnDrop;
 
 use crate::codec::bs58::DecodeBs58;
-use crate::codec::hex::{DecodeHex, EncodeHex};
-use crate::constants::{ENCODING_BINARY, ENCODING_HEX, MAX_FIELDS, P256, P384, P521};
-use crate::credential::aws::{get_attestation_document, is_debug_mode};
+use crate::codec::hex::EncodeHex;
+use crate::constants::{ENCODING_BINARY, ENCODING_HEX, P256, P384, P521};
+use crate::credential::aws::is_debug_mode;
 use crate::credential::common::Usage;
 use crate::ed25519;
-use crate::functions::{now_millis, now_secs};
-use crate::hpke::decrypt_value;
-use crate::kms::SecureHpkePrivateKey;
+use crate::functions::now_secs;
 use crate::utils::base64_decode;
 
 const MAX_NONCE_CACHE: usize = 1000;
@@ -126,17 +122,15 @@ pub async fn check_and_insert_nonce(now: i64, nonce: &str, issued_at: i64) -> bo
 pub async fn validate_nonce_issued_at(nonce: &str, issued_at: i64) -> Result<()> {
     let now = now_secs();
     let is_prod = !is_debug_mode()?;
-    if is_prod || BACKDOOR_ISSUED_AT.contains(&issued_at).not() {
-        if now > issued_at + NONCE_EXPIRE_SECONDS {
+    if (is_prod || BACKDOOR_ISSUED_AT.contains(&issued_at).not())
+        && now > issued_at + NONCE_EXPIRE_SECONDS {
             return Err(anyhow!(super::error::Error::SigExpired.to_json()));
         }
-    }
 
-    if is_prod || BACKDOOR_NONCE.contains(&nonce).not() {
-        if !check_and_insert_nonce(now, nonce, issued_at).await {
+    if (is_prod || BACKDOOR_NONCE.contains(&nonce).not())
+        && !check_and_insert_nonce(now, nonce, issued_at).await {
             return Err(anyhow!(super::error::Error::RepeatedNonce.to_json()));
         }
-    }
     Ok(())
 }
 
@@ -558,7 +552,7 @@ pub fn verify_pwd_sig(data: &str, pwd_pubkey: &str, pwd_sig: &str) -> Result<()>
     println!("data={}", data);
     let pwd_sig_bytes = pwd_sig.remove_title().decode_bs58()?;
     let public_key_bytes = pwd_pubkey.remove_title().decode_bs58()?;
-    if !ed25519::verify(&data, &public_key_bytes, &pwd_sig_bytes)? {
+    if !ed25519::verify(data, &public_key_bytes, &pwd_sig_bytes)? {
         Err(anyhow!(crate::error::Error::PwdSigVerifyFailed.to_json()))?;
     }
     Ok(())
