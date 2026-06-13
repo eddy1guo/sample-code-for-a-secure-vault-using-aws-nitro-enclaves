@@ -99,7 +99,6 @@ impl EnclaveRequest<Request> {
 
     fn encrypt(&self, plaint_text: &str) -> Result<String> {
         encrypt_with_root_secret(plaint_text)
-            .map_err(|err| anyhow!("failed to encrypt with root secret: {err:?}"))
     }
 
     pub fn execute(&self) -> Result<Response> {

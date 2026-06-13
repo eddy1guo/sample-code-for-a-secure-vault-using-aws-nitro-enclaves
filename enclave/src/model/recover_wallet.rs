@@ -169,8 +169,7 @@ impl EnclaveRequest<Request> {
                 .add_title();
             let plaint_text = wallet_bond.serialize_json()?;
             println!("{},time={}", line!(), now_millis());
-            let key_bond_ciphertext = encrypt_with_root_secret(&plaint_text)
-                .map_err(|err| anyhow!("failed to encrypt with root secret: {err:?}"))?;
+            let key_bond_ciphertext = encrypt_with_root_secret(&plaint_text)?;
             println!("{},time={}", line!(), now_millis());
             //new_key_bonds.push((key_bond_ciphertext, wallet_pubkey))
             let key_bond = KeyBondMap {

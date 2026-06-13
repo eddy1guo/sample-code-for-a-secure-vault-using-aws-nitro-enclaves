@@ -1,4 +1,3 @@
-
 use anyhow::{Result, bail};
 use ed25519_dalek::{PublicKey, SecretKey, Signer as DalekSigner, Verifier};
 use openssl::sha::sha256;

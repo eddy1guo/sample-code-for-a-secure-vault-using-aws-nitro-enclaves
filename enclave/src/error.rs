@@ -26,6 +26,13 @@ pub enum Error {
     KMSEncryptFailed = 1008,
     KMSDecryptFailed = 1009,
     PasswordDifferentWithMasterKey = 1010,
+    RootSecretNotInjected = 1011,
+    RootSecretEncryptFailed = 1012,
+    RootSecretDecryptFailed = 1013,
+    TeeClientCiphertextInvalid = 1014,
+    TeeClientUsageMismatch = 1015,
+    WalletKeyBondCiphertextInvalid = 1016,
+    WalletKeyBondUsageMismatch = 1017,
 }
 
 #[derive(Debug, Serialize, Deserialize)]

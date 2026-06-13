@@ -5,7 +5,6 @@ pub mod json;
 
 use serde::de::DeserializeOwned;
 
-
 pub trait Encode {
     fn encode(&self) -> Result<String, anyhow::Error>;
 }

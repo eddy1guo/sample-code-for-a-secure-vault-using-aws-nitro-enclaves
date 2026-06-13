@@ -458,7 +458,7 @@ async fn prepare_sign_without_assertion_fixture(
     client: &Client,
     base_url: &str,
 ) -> Result<(String, String)> {
-    run_root_secret(client, base_url, KEY_ID, REGION).await?;
+    //run_root_secret(client, base_url, KEY_ID, REGION).await?;
 
     let platform = "Google".to_string();
     let register_payload = register_tee_device_payload();
@@ -1087,9 +1087,10 @@ async fn post_json<T: Serialize>(
 ) -> Result<ApiResponse> {
     let parsed = send_json_request(client, base_url, path, payload, label).await?;
     if let Some(errors) = &parsed.errors
-        && !errors.is_empty() {
-            bail!("{} returned business errors: {}", label, errors.join("; "));
-        }
+        && !errors.is_empty()
+    {
+        bail!("{} returned business errors: {}", label, errors.join("; "));
+    }
     Ok(parsed)
 }
 

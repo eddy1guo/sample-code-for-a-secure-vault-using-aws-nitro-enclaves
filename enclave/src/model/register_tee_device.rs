@@ -73,8 +73,7 @@ impl EnclaveRequest<Request> {
         }
         .serialize_json()?;
         println!("file={},line={}", file!(), line!());
-        let client_ciphertext = encrypt_with_root_secret(&tee_client)
-            .map_err(|err| anyhow!("failed to encrypt with root secret: {err:?}"))?;
+        let client_ciphertext = encrypt_with_root_secret(&tee_client)?;
         Ok(Response {
             client_ciphertext,
             tee_device_pubkey: pubkey,

@@ -53,6 +53,18 @@ fn kms_decrypt_biz_error() -> anyhow::Error {
     anyhow!(crate::error::Error::KMSDecryptFailed.to_json())
 }
 
+fn root_secret_not_injected_error() -> anyhow::Error {
+    anyhow!(crate::error::Error::RootSecretNotInjected.to_json())
+}
+
+fn root_secret_encrypt_biz_error() -> anyhow::Error {
+    anyhow!(crate::error::Error::RootSecretEncryptFailed.to_json())
+}
+
+fn root_secret_decrypt_biz_error() -> anyhow::Error {
+    anyhow!(crate::error::Error::RootSecretDecryptFailed.to_json())
+}
+
 fn kms_decrypt_raw(credential: &Credential, ciphertext: &str, region: &str) -> Result<Vec<u8>> {
     let ciphertext_bytes = ciphertext.decode_hex()?;
 
@@ -99,7 +111,7 @@ fn cloned_root_secret() -> Result<Zeroizing<Vec<u8>>> {
     let root_secret_guard = ROOT_SECRET.read().map_err(|_| kms_decrypt_biz_error())?;
     let root_secret = root_secret_guard
         .as_ref()
-        .ok_or_else(kms_decrypt_biz_error)?;
+        .ok_or_else(root_secret_not_injected_error)?;
     Ok(Zeroizing::new(root_secret.to_vec()))
 }
 
@@ -110,22 +122,22 @@ pub fn encrypt_with_root_secret(plaintext: &str) -> Result<String> {
 
     let cipher = Cipher::aes_256_gcm();
     let mut crypter = Crypter::new(cipher, Mode::Encrypt, root_secret.as_slice(), Some(&nonce))
-        .map_err(|_| kms_encrypt_biz_error())?;
+        .map_err(|_| root_secret_encrypt_biz_error())?;
     crypter.pad(false);
 
     let mut ciphertext = vec![0u8; plaintext.len() + cipher.block_size()];
     let mut count = crypter
         .update(plaintext.as_bytes(), &mut ciphertext)
-        .map_err(|_| kms_encrypt_biz_error())?;
+        .map_err(|_| root_secret_encrypt_biz_error())?;
     count += crypter
         .finalize(&mut ciphertext[count..])
-        .map_err(|_| kms_encrypt_biz_error())?;
+        .map_err(|_| root_secret_encrypt_biz_error())?;
     ciphertext.truncate(count);
 
     let mut tag = [0u8; ROOT_SECRET_TAG_LEN_BYTES];
     crypter
         .get_tag(&mut tag)
-        .map_err(|_| kms_encrypt_biz_error())?;
+        .map_err(|_| root_secret_encrypt_biz_error())?;
 
     let mut payload = Vec::with_capacity(
         ROOT_SECRET_NONCE_LEN_BYTES + ciphertext.len() + ROOT_SECRET_TAG_LEN_BYTES,
@@ -140,33 +152,35 @@ pub fn encrypt_with_root_secret(plaintext: &str) -> Result<String> {
 pub fn decrypt_with_root_secret(ciphertext: &str) -> Result<Vec<u8>> {
     let payload = ciphertext
         .decode_hex()
-        .map_err(|_| kms_decrypt_biz_error())?;
+        .map_err(|_| root_secret_decrypt_biz_error())?;
 
     if payload.len() < ROOT_SECRET_NONCE_LEN_BYTES + ROOT_SECRET_TAG_LEN_BYTES {
-        Err(kms_decrypt_biz_error())?;
+        Err(root_secret_decrypt_biz_error())?;
     }
 
     let (nonce, ciphertext_and_tag) = payload.split_at(ROOT_SECRET_NONCE_LEN_BYTES);
     let split_at = ciphertext_and_tag
         .len()
         .checked_sub(ROOT_SECRET_TAG_LEN_BYTES)
-        .ok_or_else(kms_decrypt_biz_error)?;
+        .ok_or_else(root_secret_decrypt_biz_error)?;
     let (encrypted, tag) = ciphertext_and_tag.split_at(split_at);
 
     let root_secret = cloned_root_secret()?;
     let cipher = Cipher::aes_256_gcm();
     let mut crypter = Crypter::new(cipher, Mode::Decrypt, root_secret.as_slice(), Some(nonce))
-        .map_err(|_| kms_decrypt_biz_error())?;
+        .map_err(|_| root_secret_decrypt_biz_error())?;
     crypter.pad(false);
-    crypter.set_tag(tag).map_err(|_| kms_decrypt_biz_error())?;
+    crypter
+        .set_tag(tag)
+        .map_err(|_| root_secret_decrypt_biz_error())?;
 
     let mut plaintext = vec![0u8; encrypted.len() + cipher.block_size()];
     let mut count = crypter
         .update(encrypted, &mut plaintext)
-        .map_err(|_| kms_decrypt_biz_error())?;
+        .map_err(|_| root_secret_decrypt_biz_error())?;
     count += crypter
         .finalize(&mut plaintext[count..])
-        .map_err(|_| kms_decrypt_biz_error())?;
+        .map_err(|_| root_secret_decrypt_biz_error())?;
     plaintext.truncate(count);
 
     Ok(plaintext)
@@ -219,11 +233,11 @@ pub fn get_tee_client(
 ) -> Result<TeeClient> {
     println!("{}:{}", file!(), line!());
     let plaintext = decrypt_with_root_secret(device_ciphertext)
-        .map_err(|err| anyhow!("failed to decrypt tee client ciphertext: {err:?}"))?;
+        .map_err(|_| anyhow!(crate::error::Error::TeeClientCiphertextInvalid.to_json()))?;
 
     let client: TeeClient = serde_json::from_slice(&plaintext)?;
     if client.usage != Usage::RegisterTeeDevice {
-        bail!("Usage not matched!");
+        bail!(crate::error::Error::TeeClientUsageMismatch.to_json());
     }
     println!(
         "[enclave:plaintext_pubkey] decrypted tee client payload: {:?}",
@@ -238,11 +252,11 @@ use crate::model::RecoverWalletRequest;
 pub fn get_tee_client2(payload: &EnclaveRequest<RecoverWalletRequest>) -> Result<TeeClient> {
     println!("{}:{}", file!(), line!());
     let plaintext = decrypt_with_root_secret(&payload.request.new_device_ciphertext)
-        .map_err(|err| anyhow!("failed to decrypt tee client ciphertext: {err:?}"))?;
+        .map_err(|_| anyhow!(crate::error::Error::TeeClientCiphertextInvalid.to_json()))?;
 
     let client: TeeClient = serde_json::from_slice(&plaintext)?;
     if client.usage != Usage::RegisterTeeDevice {
-        bail!("Usage not matched!");
+        bail!(crate::error::Error::TeeClientUsageMismatch.to_json());
     }
     println!(
         "[enclave:plaintext_pubkey] decrypted tee client payload: {:?}",
@@ -259,11 +273,11 @@ pub fn get_wallet_key_bond(
 ) -> Result<WalletKeyBond> {
     println!("{}:{}", file!(), line!());
     let plaintext = decrypt_with_root_secret(ciphertext)
-        .map_err(|err| anyhow!("failed to decrypt wallet key bond ciphertext: {err:?}"))?;
+        .map_err(|_| anyhow!(crate::error::Error::WalletKeyBondCiphertextInvalid.to_json()))?;
 
     let client: WalletKeyBond = serde_json::from_slice(&plaintext)?;
     if client.usage != Usage::CreateWalletKey {
-        bail!("Usage is {}.expect CreatedWalletKey", client.usage);
+        bail!(crate::error::Error::WalletKeyBondUsageMismatch.to_json());
     }
     println!(
         "[enclave:plaintext_pubkey] decrypted wallet key bond payload: {:?}",
