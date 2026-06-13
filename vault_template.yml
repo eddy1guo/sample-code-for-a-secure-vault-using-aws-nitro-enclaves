@@ -873,7 +873,7 @@ Resources:
       InstanceMaintenancePolicy:
         MaxHealthyPercentage: 200
         MinHealthyPercentage: 100
-      MaxInstanceLifetime: 86400  # recycle instances every day (in seconds)
+      MaxInstanceLifetime: 0  # recycle instances every day (in seconds)
       MaxSize: 2
       MinSize: 1
       MixedInstancesPolicy:
