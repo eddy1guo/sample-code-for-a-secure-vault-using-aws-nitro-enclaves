@@ -9,7 +9,7 @@ use crate::ed25519::new_key_pair;
 use crate::error::Error;
 use crate::kms::get_wallet_key_bond;
 use crate::kms::{encrypt_with_root_secret, get_tee_client};
-use crate::model::{DecryptRequire, Ed25519Title, EnclaveRequest, validate_nonce_issued_at};
+use crate::model::{Ed25519Title, EnclaveRequest, validate_nonce_issued_at};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Request {

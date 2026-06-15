@@ -11,6 +11,11 @@ pub mod ffi;
 use std::fmt;
 
 #[cfg(target_env = "musl")]
+use aws_sdk_kms::config::{Credentials, Region};
+#[cfg(target_env = "musl")]
+use aws_sdk_kms::primitives::Blob;
+
+#[cfg(target_env = "musl")]
 use std::ptr;
 #[cfg(target_env = "musl")]
 use std::slice;
