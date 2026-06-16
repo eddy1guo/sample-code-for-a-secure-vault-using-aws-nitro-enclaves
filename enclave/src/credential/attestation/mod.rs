@@ -2,7 +2,7 @@ pub mod apple;
 pub mod google;
 
 use crate::credential::common::Platform;
-use anyhow::Result;
+use anyhow::{Result, anyhow};
 
 // pub enum Attestation {
 //     Google(google::RealWorldSample),
@@ -58,7 +58,12 @@ pub fn verify_attestation(
     attestation: &[String],
 ) -> Result<(String, String)> {
     match platform {
-        Platform::Apple => apple::verify_attestation2(client_data_bytes, &attestation[0]),
+        Platform::Apple => apple::verify_attestation2(
+            client_data_bytes,
+            attestation
+                .first()
+                .ok_or_else(|| anyhow!(crate::error::Error::ParamsInvalid.to_json()))?,
+        ),
         Platform::Google => google::verify_attestation2(client_data_bytes, attestation),
     }
 }

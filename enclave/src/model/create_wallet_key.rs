@@ -7,8 +7,8 @@ use crate::credential::assertion::verify_assertion;
 use crate::credential::common::{Usage, WalletKeyBond};
 use crate::ed25519::new_key_pair;
 use crate::error::Error;
-use crate::kms::get_wallet_key_bond;
-use crate::kms::{encrypt_with_root_secret, get_tee_client};
+use crate::kms::encrypt_with_root_secret;
+use crate::kms::{get_tee_client_from_ciphertext, get_wallet_key_bond};
 use crate::model::{Ed25519Title, EnclaveRequest, validate_nonce_issued_at};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -135,7 +135,7 @@ impl EnclaveRequest<Request> {
         };
 
         //获取当前的设备证明
-        let client = get_tee_client(self, &self.request.device_ciphertext)?;
+        let client = get_tee_client_from_ciphertext(&self.request.device_ciphertext)?;
         //先验证当前客户端的assertion
         let _counter = verify_assertion(
             client.platform.clone(),
@@ -147,7 +147,7 @@ impl EnclaveRequest<Request> {
         println!("file={},line={}", file!(), line!());
 
         //验证被绑定客户端的assertion
-        let bind_client = get_tee_client(self, &self.request.bind_device_ciphertext)?;
+        let bind_client = get_tee_client_from_ciphertext(&self.request.bind_device_ciphertext)?;
         //先验证客户端对kms加密结果的认证
         let _counter = verify_assertion(
             bind_client.platform.clone(),

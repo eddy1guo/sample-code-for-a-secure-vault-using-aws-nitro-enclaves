@@ -5,7 +5,7 @@ use crate::codec::json::JsonSerialize;
 use crate::credential::attestation::verify_attestation;
 use crate::credential::common::{Platform, TeeClient, Usage};
 use crate::kms::encrypt_with_root_secret;
-use crate::model::{DecryptRequire, EnclaveRequest, validate_nonce_issued_at};
+use crate::model::{EnclaveRequest, validate_nonce_issued_at};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Request {
@@ -49,11 +49,17 @@ impl EnclaveRequest<Request> {
             println!("region cannot be empty");
             Err(anyhow!(super::super::error::Error::ParamsInvalid.to_json()))?;
         }
+
+        if self.request.attestation.is_empty() {
+            println!("attestation cannot be empty");
+            Err(anyhow!(super::super::error::Error::ParamsInvalid.to_json()))?;
+        }
         Ok(())
     }
 
     pub fn execute(&self) -> Result<Response> {
         println!("request_data={:#?}", self.request);
+        self.validate()?;
         tokio::runtime::Runtime::new()?.block_on(validate_nonce_issued_at(
             &self.request.nonce,
             self.request.issued_at,

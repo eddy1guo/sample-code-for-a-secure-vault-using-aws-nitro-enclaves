@@ -41,7 +41,6 @@ use aws_lc_rs::signature::{
     EcdsaSigningAlgorithm,
 };
 use data_encoding::HEXLOWER;
-use rayon::prelude::*;
 use rustls::crypto::aws_lc_rs::hpke::{
     DH_KEM_P256_HKDF_SHA256_AES_256, DH_KEM_P384_HKDF_SHA384_AES_256,
     DH_KEM_P521_HKDF_SHA512_AES_256,
@@ -578,6 +577,12 @@ pub fn verify_pwd_sig_with_lock(
 
     clear_failed_pwd_sig(&account_key)?;
     Ok(())
+}
+
+pub(crate) fn first_key_bond(key_bonds: &[ConfirmedKeyBond]) -> Result<&ConfirmedKeyBond> {
+    key_bonds
+        .first()
+        .ok_or_else(|| anyhow!(crate::error::Error::ParamsInvalid.to_json()))
 }
 
 #[cfg(test)]

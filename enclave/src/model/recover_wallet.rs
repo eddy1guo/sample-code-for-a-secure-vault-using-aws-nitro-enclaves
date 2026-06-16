@@ -5,10 +5,9 @@ use crate::codec::json::JsonSerialize;
 use crate::credential::assertion::verify_assertion;
 use crate::credential::common::Usage;
 use crate::ed25519::ExtractPubkey;
-use crate::functions::now_millis;
-use crate::kms::{encrypt_with_root_secret, get_tee_client2, get_wallet_key_bond};
+use crate::kms::{encrypt_with_root_secret, get_tee_client_from_ciphertext, get_wallet_key_bond};
 use crate::model::{
-    ConfirmedKeyBond, DecryptRequire, Ed25519Title, EnclaveRequest, validate_nonce_issued_at,
+    ConfirmedKeyBond, Ed25519Title, EnclaveRequest, first_key_bond, validate_nonce_issued_at,
 };
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Request {
@@ -109,7 +108,7 @@ impl EnclaveRequest<Request> {
         ))?;
         println!("file={},line={}", file!(), line!());
 
-        let new_device = get_tee_client2(self)?;
+        let new_device = get_tee_client_from_ciphertext(&self.request.new_device_ciphertext)?;
 
         //先验证新客户端对kms加密结果的认证
         let _counter = verify_assertion(
@@ -124,7 +123,7 @@ impl EnclaveRequest<Request> {
         //这里仅为了提取pwd_pubkey，任何一个成员的都行
         let wallet_bond = get_wallet_key_bond(
             &self.credential,
-            &self.request.key_bonds[0].ciphertext,
+            &first_key_bond(&self.request.key_bonds)?.ciphertext,
             &self.request.region,
         )?;
 
@@ -138,12 +137,9 @@ impl EnclaveRequest<Request> {
 
         //校验每个key的客户端确认签名并且解密后换绑重新加密
         let mut new_key_bonds = vec![];
-        println!("{},time={}", line!(), now_millis());
         for bond in self.request.key_bonds.iter() {
-            println!("{},time={}", line!(), now_millis());
             let mut wallet_bond =
                 get_wallet_key_bond(&self.credential, &bond.ciphertext, &self.request.region)?;
-            println!("{},time={}", line!(), now_millis());
 
             verify_assertion(
                 wallet_bond.client_platform.clone(),
@@ -168,9 +164,7 @@ impl EnclaveRequest<Request> {
                 .extract_pubkey()?
                 .add_title();
             let plaint_text = wallet_bond.serialize_json()?;
-            println!("{},time={}", line!(), now_millis());
             let key_bond_ciphertext = encrypt_with_root_secret(&plaint_text)?;
-            println!("{},time={}", line!(), now_millis());
             //new_key_bonds.push((key_bond_ciphertext, wallet_pubkey))
             let key_bond = KeyBondMap {
                 key_bond_ciphertext,
@@ -178,7 +172,6 @@ impl EnclaveRequest<Request> {
             };
             new_key_bonds.push(key_bond)
         }
-        println!("{},time={}", line!(), now_millis());
         Ok(Response { new_key_bonds })
     }
 }

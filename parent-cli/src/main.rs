@@ -43,13 +43,6 @@ const CREATE_KEY_ASSERTION: &str = "MEUCIQDkUENQfUm7y4fk+M1Xml2LpCtox3m09reCFClL
 const CONFIRM_KEY_ASSERTION: &str = "MEQCICANP91P4UZiHscz3YHLqj8PgZixAg1YjI109ESAVd8HAiBIo+lFYZlfEOv9WtFyLs23kBkxSqUNkSJXM02e5DbxSA==";
 const SIGN_ASSERTION: &str = "MEQCIGkPGoSm8cBNfUShXdCOMPcR+ulQQ14wEq+0O/V1yTu7AiAwVqL5mT642qXO4b1I04sAMd9IWZngX/zB2gRHOp9mRw==";
 // {"type":"ConfirmTeeDevice","message": "xx_tee_device_cipher_text_xx"}
-const CONFIRM_TEE_CLIENT_REGISTER_ASSERTION: &str = "LnxoVdHGe+HnCcwS7FCWJecITXf2KlJBoHO7/Jr4DFI=";
-
-// {"type":"Sign","message": "xxxx","issued_at":1779876890,"nonce":"1111"}
-
-// {"type":"ConfirmWalletKey","message": "xx_wallet_key_cipher_text_xx"}
-const CONFIRM_KEY_BOND_ASSERTION: &str = "LnxoVdHGe+HnCcwS7FCWJecITXf2KlJBoHO7/Jr4DFI=";
-
 //device_confirmed_assertion: PLACEHOLDER_SIG.to_string(),
 
 //        create_key_assertion: PLACEHOLDER_SIG.to_string(),
@@ -257,7 +250,7 @@ struct SignWithoutAssertionRequest {
 #[derive(Debug, Deserialize)]
 struct RegisterTeeDeviceResponse {
     client_ciphertext: String,
-    tee_device_pubkey: String,
+    //tee_device_pubkey: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -285,7 +278,7 @@ struct InjectRootSecretCiphertextResponse {
 #[derive(Debug, Deserialize)]
 struct CreateWalletKeyResponse {
     key_bond_ciphertext: String,
-    wallet_pubkey: String,
+    //wallet_pubkey: String,
 }
 
 #[derive(Debug, Deserialize)]

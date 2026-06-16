@@ -123,10 +123,13 @@ fn parse_cose_sign1(raw: &[u8]) -> Result<CoseSign1Doc> {
         _ => Err(anyhow!("expected bytes")),
     };
 
-    let protected = to_bytes(&arr[0])?;
+    if arr.len() != 4 {
+        bail!("invalid COSE_Sign1 structure: expected 4 elements, got {}", arr.len());
+    }
+    let protected = to_bytes(arr.get(0).ok_or_else(|| anyhow!("missing COSE protected header"))?)?;
     // index 1 is unprotected data， ingore it
-    let payload_bytes = to_bytes(&arr[2])?;
-    let signature = to_bytes(&arr[3])?;
+    let payload_bytes = to_bytes(arr.get(2).ok_or_else(|| anyhow!("missing COSE payload"))?)?;
+    let signature = to_bytes(arr.get(3).ok_or_else(|| anyhow!("missing COSE signature"))?)?;
     let payload: AttestationDoc = serde_cbor::from_slice(&payload_bytes)?;
 
     Ok(CoseSign1Doc {
@@ -206,10 +209,10 @@ IwLz3/Y=
         root_pem: &[u8],
     ) -> Result<Vec<u8>> {
         // 1. 解析 COSE_Sign1
-        let cose = CoseSign1::from_bytes(cose_bytes).unwrap();
+        let cose = CoseSign1::from_bytes(cose_bytes)?;
 
         let doc: AttestationDoc =
-            serde_cbor::from_slice(&cose.get_payload::<Openssl>(None).unwrap())?;
+            serde_cbor::from_slice(&cose.get_payload::<Openssl>(None)?)?;
 
         // 2. 验证证书链 → AWS Root CA
         let cert = X509::from_der(&doc.certificate)?;
@@ -217,7 +220,7 @@ IwLz3/Y=
 
         // 3. 用叶子证书验签
         let public_key: PKey<Public> = cert.public_key()?;
-        if cose.verify_signature::<Openssl>(&public_key).unwrap().not() {
+        if !cose.verify_signature::<Openssl>(&public_key)? {
             bail!("signature verify failed")
         }
 
@@ -230,11 +233,20 @@ IwLz3/Y=
         }
 
         // 5. 验证nonce值
-        if doc.nonce.unwrap().as_slice() != client_nonce.as_ref() {
+        if doc
+            .nonce
+            .as_ref()
+            .ok_or_else(|| anyhow!("attestation document nonce is missing"))?
+            .as_slice()
+            != client_nonce.as_ref()
+        {
             bail!("nonce mismatch with enclave")
         }
 
-        Ok(doc.user_data.unwrap().to_vec())
+        Ok(doc
+            .user_data
+            .ok_or_else(|| anyhow!("attestation document user_data is missing"))?
+            .to_vec())
     }
 
     fn verify_cert_chain(leaf: &X509, cabundle: &[ByteBuf], root_pem: &[u8]) -> Result<()> {

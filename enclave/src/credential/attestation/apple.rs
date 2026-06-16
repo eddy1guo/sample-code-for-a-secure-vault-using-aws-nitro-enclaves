@@ -4,7 +4,7 @@ use crate::credential::common::{
 };
 use anyhow::{Result, anyhow, bail};
 use base64::Engine as _;
-use base64::engine::general_purpose::{STANDARD, STANDARD_NO_PAD, URL_SAFE, URL_SAFE_NO_PAD};
+use base64::engine::general_purpose::STANDARD;
 use openssl::bn::BigNumContext;
 use openssl::ec::PointConversionForm;
 use openssl::pkey::{PKey, Public};
@@ -204,8 +204,7 @@ pub fn verify_attestation(
         sha256_bytes(&public_key_spki_der),
         sha256_bytes(&public_key_raw),
     ];
-    if !candidate_hashes.contains(&auth_data.credential_id)
-    {
+    if !candidate_hashes.contains(&auth_data.credential_id) {
         bail!("credential id does not match the attested certificate public key");
     }
 
@@ -487,10 +486,7 @@ fn integer_field(map: &std::collections::BTreeMap<Value, Value>, key: i128) -> R
     }
 }
 
-fn bytes_field(
-    map: &std::collections::BTreeMap<Value, Value>,
-    key: i128,
-) -> Result<&[u8]> {
+fn bytes_field(map: &std::collections::BTreeMap<Value, Value>, key: i128) -> Result<&[u8]> {
     match map.get(&Value::Integer(key)) {
         Some(Value::Bytes(value)) => Ok(value.as_slice()),
         Some(_) => bail!("COSE field {key} is not a byte string"),
@@ -498,14 +494,14 @@ fn bytes_field(
     }
 }
 
-fn decode_key_id(key_id: &str) -> Result<Vec<u8>> {
-    for engine in [URL_SAFE_NO_PAD, URL_SAFE, STANDARD_NO_PAD, STANDARD] {
-        if let Ok(decoded) = engine.decode(key_id) {
-            return Ok(decoded);
-        }
-    }
-    bail!("App Attest key id is not valid base64")
-}
+// fn decode_key_id(key_id: &str) -> Result<Vec<u8>> {
+//     for engine in [URL_SAFE_NO_PAD, URL_SAFE, STANDARD_NO_PAD, STANDARD] {
+//         if let Ok(decoded) = engine.decode(key_id) {
+//             return Ok(decoded);
+//         }
+//     }
+//     bail!("App Attest key id is not valid base64")
+// }
 
 fn public_key_raw_bytes(public_key: &PKey<Public>) -> Result<Vec<u8>> {
     let ec_key = public_key.ec_key()?;
@@ -603,16 +599,18 @@ fn extract_app_id_candidates(raw: &[u8]) -> Vec<String> {
 
         if let Some(begin) = start.take()
             && let Some(candidate) = normalize_app_id_candidate(&text[begin..idx])
-                && !candidates.iter().any(|existing| existing == &candidate) {
-                    candidates.push(candidate);
-                }
+            && !candidates.iter().any(|existing| existing == &candidate)
+        {
+            candidates.push(candidate);
+        }
     }
 
     if let Some(begin) = start
         && let Some(candidate) = normalize_app_id_candidate(&text[begin..])
-            && !candidates.iter().any(|existing| existing == &candidate) {
-                candidates.push(candidate);
-            }
+        && !candidates.iter().any(|existing| existing == &candidate)
+    {
+        candidates.push(candidate);
+    }
 
     candidates
 }

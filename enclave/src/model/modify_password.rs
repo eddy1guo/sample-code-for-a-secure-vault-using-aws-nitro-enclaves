@@ -5,9 +5,10 @@ use crate::codec::json::JsonSerialize;
 use crate::credential::assertion::verify_assertion;
 use crate::credential::common::Usage;
 use crate::ed25519::ExtractPubkey;
-use crate::functions::now_millis;
 use crate::kms::{encrypt_with_root_secret, get_wallet_key_bond};
-use crate::model::{ConfirmedKeyBond, Ed25519Title, EnclaveRequest, validate_nonce_issued_at};
+use crate::model::{
+    ConfirmedKeyBond, Ed25519Title, EnclaveRequest, first_key_bond, validate_nonce_issued_at,
+};
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Request {
     pub key_bonds: Vec<ConfirmedKeyBond>,
@@ -94,7 +95,7 @@ impl EnclaveRequest<Request> {
         // 每个bond里面对应的全局数据是一致的任取一个就行
         let wallet_bond = get_wallet_key_bond(
             &self.credential,
-            &self.request.key_bonds[0].ciphertext,
+            &first_key_bond(&self.request.key_bonds)?.ciphertext,
             &self.request.region,
         )?;
         println!("file={},line={}", file!(), line!());
@@ -126,12 +127,9 @@ impl EnclaveRequest<Request> {
 
         //校验每个key的客户端确认签名并且解密后换绑重新加密
         let mut new_key_bonds = vec![];
-        println!("{},time={}", line!(), now_millis());
         for bond in self.request.key_bonds.iter() {
-            println!("{},time={}", line!(), now_millis());
             let mut wallet_bond =
                 get_wallet_key_bond(&self.credential, &bond.ciphertext, &self.request.region)?;
-            println!("{},time={}", line!(), now_millis());
 
             verify_assertion(
                 wallet_bond.client_platform.clone(),
@@ -151,16 +149,13 @@ impl EnclaveRequest<Request> {
                 .extract_pubkey()?
                 .add_title();
             let plaint_text = wallet_bond.serialize_json()?;
-            println!("{},time={}", line!(), now_millis());
             let key_bond_ciphertext = encrypt_with_root_secret(&plaint_text)?;
-            println!("{},time={}", line!(), now_millis());
             let key_bond = KeyBondMap {
                 key_bond_ciphertext,
                 wallet_pubkey,
             };
             new_key_bonds.push(key_bond)
         }
-        println!("{},time={}", line!(), now_millis());
         Ok(Response { new_key_bonds })
     }
 }

@@ -45,10 +45,6 @@ impl SecureHpkePrivateKey {
     }
 }
 
-fn kms_encrypt_biz_error() -> anyhow::Error {
-    anyhow!(crate::error::Error::KMSEncryptFailed.to_json())
-}
-
 fn kms_decrypt_biz_error() -> anyhow::Error {
     anyhow!(crate::error::Error::KMSDecryptFailed.to_json())
 }
@@ -65,7 +61,7 @@ fn root_secret_decrypt_biz_error() -> anyhow::Error {
     anyhow!(crate::error::Error::RootSecretDecryptFailed.to_json())
 }
 
-fn kms_decrypt_raw(credential: &Credential, ciphertext: &str, region: &str) -> Result<Vec<u8>> {
+fn call_kms_decrypt(credential: &Credential, ciphertext: &str, region: &str) -> Result<Vec<u8>> {
     let ciphertext_bytes = ciphertext.decode_hex()?;
 
     aws_ne::kms_decrypt(
@@ -76,10 +72,6 @@ fn kms_decrypt_raw(credential: &Credential, ciphertext: &str, region: &str) -> R
         &ciphertext_bytes,
     )
     .map_err(|e| anyhow!("KMS decrypt failed: {}", e))
-}
-
-fn call_kms_decrypt(credential: &Credential, ciphertext: &str, region: &str) -> Result<Vec<u8>> {
-    kms_decrypt_raw(credential, ciphertext, region)
 }
 
 fn call_kms_encrypt(
@@ -227,43 +219,53 @@ pub fn root_secret_loaded() -> Result<bool> {
     Ok(root_secret_guard.is_some())
 }
 
-pub fn get_tee_client(
-    _payload: &EnclaveRequest<CreateWalletKeyRequest>,
-    device_ciphertext: &str,
-) -> Result<TeeClient> {
-    println!("{}:{}", file!(), line!());
-    let plaintext = decrypt_with_root_secret(device_ciphertext)
-        .map_err(|_| anyhow!(crate::error::Error::TeeClientCiphertextInvalid.to_json()))?;
-
-    let client: TeeClient = serde_json::from_slice(&plaintext)?;
-    if client.usage != Usage::RegisterTeeDevice {
-        bail!(crate::error::Error::TeeClientUsageMismatch.to_json());
-    }
-    println!(
-        "[enclave:plaintext_pubkey] decrypted tee client payload: {:?}",
-        client
-    );
-
-    Ok(client)
+trait UsageBoundPayload: serde::de::DeserializeOwned + std::fmt::Debug {
+    fn usage(&self) -> &Usage;
 }
 
-use crate::model::RecoverWalletRequest;
+impl UsageBoundPayload for TeeClient {
+    fn usage(&self) -> &Usage {
+        &self.usage
+    }
+}
 
-pub fn get_tee_client2(payload: &EnclaveRequest<RecoverWalletRequest>) -> Result<TeeClient> {
-    println!("{}:{}", file!(), line!());
-    let plaintext = decrypt_with_root_secret(&payload.request.new_device_ciphertext)
-        .map_err(|_| anyhow!(crate::error::Error::TeeClientCiphertextInvalid.to_json()))?;
+impl UsageBoundPayload for WalletKeyBond {
+    fn usage(&self) -> &Usage {
+        &self.usage
+    }
+}
 
-    let client: TeeClient = serde_json::from_slice(&plaintext)?;
-    if client.usage != Usage::RegisterTeeDevice {
-        bail!(crate::error::Error::TeeClientUsageMismatch.to_json());
+fn decrypt_usage_bound_payload<T>(
+    ciphertext: &str,
+    ciphertext_error: crate::error::Error,
+    expected_usage: Usage,
+    usage_error: crate::error::Error,
+    payload_label: &str,
+) -> Result<T>
+where
+    T: UsageBoundPayload,
+{
+    let plaintext =
+        decrypt_with_root_secret(ciphertext).map_err(|_| anyhow!(ciphertext_error.to_json()))?;
+    let payload: T = serde_json::from_slice(&plaintext)?;
+    if payload.usage() != &expected_usage {
+        bail!(usage_error.to_json());
     }
     println!(
-        "[enclave:plaintext_pubkey] decrypted tee client payload: {:?}",
-        client
+        "[enclave:plaintext_pubkey] decrypted {} payload: {:?}",
+        payload_label, payload
     );
+    Ok(payload)
+}
 
-    Ok(client)
+pub fn get_tee_client_from_ciphertext(ciphertext: &str) -> Result<TeeClient> {
+    decrypt_usage_bound_payload(
+        ciphertext,
+        crate::error::Error::TeeClientCiphertextInvalid,
+        Usage::RegisterTeeDevice,
+        crate::error::Error::TeeClientUsageMismatch,
+        "tee client",
+    )
 }
 
 pub fn get_wallet_key_bond(
@@ -271,20 +273,13 @@ pub fn get_wallet_key_bond(
     ciphertext: &str,
     _region: &str,
 ) -> Result<WalletKeyBond> {
-    println!("{}:{}", file!(), line!());
-    let plaintext = decrypt_with_root_secret(ciphertext)
-        .map_err(|_| anyhow!(crate::error::Error::WalletKeyBondCiphertextInvalid.to_json()))?;
-
-    let client: WalletKeyBond = serde_json::from_slice(&plaintext)?;
-    if client.usage != Usage::CreateWalletKey {
-        bail!(crate::error::Error::WalletKeyBondUsageMismatch.to_json());
-    }
-    println!(
-        "[enclave:plaintext_pubkey] decrypted wallet key bond payload: {:?}",
-        client
-    );
-
-    Ok(client)
+    decrypt_usage_bound_payload(
+        ciphertext,
+        crate::error::Error::WalletKeyBondCiphertextInvalid,
+        Usage::CreateWalletKey,
+        crate::error::Error::WalletKeyBondUsageMismatch,
+        "wallet key bond",
+    )
 }
 
 #[cfg(test)]
