@@ -124,12 +124,21 @@ fn parse_cose_sign1(raw: &[u8]) -> Result<CoseSign1Doc> {
     };
 
     if arr.len() != 4 {
-        bail!("invalid COSE_Sign1 structure: expected 4 elements, got {}", arr.len());
+        bail!(
+            "invalid COSE_Sign1 structure: expected 4 elements, got {}",
+            arr.len()
+        );
     }
-    let protected = to_bytes(arr.get(0).ok_or_else(|| anyhow!("missing COSE protected header"))?)?;
+    let protected = to_bytes(
+        arr.get(0)
+            .ok_or_else(|| anyhow!("missing COSE protected header"))?,
+    )?;
     // index 1 is unprotected data， ingore it
     let payload_bytes = to_bytes(arr.get(2).ok_or_else(|| anyhow!("missing COSE payload"))?)?;
-    let signature = to_bytes(arr.get(3).ok_or_else(|| anyhow!("missing COSE signature"))?)?;
+    let signature = to_bytes(
+        arr.get(3)
+            .ok_or_else(|| anyhow!("missing COSE signature"))?,
+    )?;
     let payload: AttestationDoc = serde_cbor::from_slice(&payload_bytes)?;
 
     Ok(CoseSign1Doc {
@@ -207,20 +216,29 @@ IwLz3/Y=
         expected_pcrs: &BTreeMap<u32, Vec<u8>>,
         client_nonce: &T,
         root_pem: &[u8],
-    ) -> Result<Vec<u8>> {
+    ) -> anyhow::Result<Vec<u8>> {
         // 1. 解析 COSE_Sign1
-        let cose = CoseSign1::from_bytes(cose_bytes)?;
+        let cose = CoseSign1::from_bytes(cose_bytes)
+            .map_err(|e| anyhow!("failed to parse COSE_Sign1: {e}"))?;
 
-        let doc: AttestationDoc =
-            serde_cbor::from_slice(&cose.get_payload::<Openssl>(None)?)?;
+        let doc: AttestationDoc = serde_cbor::from_slice(
+            &cose
+                .get_payload::<Openssl>(None)
+                .map_err(|e| anyhow!("failed to get payload: {e}"))?,
+        )?;
 
         // 2. 验证证书链 → AWS Root CA
-        let cert = X509::from_der(&doc.certificate)?;
-        verify_cert_chain(&cert, &doc.cabundle, root_pem)?;
+        let cert = X509::from_der(&doc.certificate)
+            .map_err(|e| anyhow!("failed to parse certificate: {e}"))?;
+        verify_cert_chain(&cert, &doc.cabundle, root_pem)
+            .map_err(|e| anyhow!("failed to verify certificate chain: {e}"))?;
 
         // 3. 用叶子证书验签
         let public_key: PKey<Public> = cert.public_key()?;
-        if !cose.verify_signature::<Openssl>(&public_key)? {
+        if !cose
+            .verify_signature::<Openssl>(&public_key)
+            .map_err(|e| anyhow!("failed to verify signature: {e}"))?
+        {
             bail!("signature verify failed")
         }
 

@@ -19,7 +19,7 @@ use zeroize::Zeroizing;
 use crate::aws_ne;
 use crate::codec::hex::{DecodeHex, EncodeHex};
 use crate::credential::common::{TeeClient, Usage, WalletKeyBond};
-use crate::models::{CreateWalletKeyRequest, Credential, EnclaveRequest};
+use crate::models::Credential;
 
 pub const ROOT_SECRET_LEN_BYTES: usize = 32;
 const ROOT_SECRET_NONCE_LEN_BYTES: usize = 12;

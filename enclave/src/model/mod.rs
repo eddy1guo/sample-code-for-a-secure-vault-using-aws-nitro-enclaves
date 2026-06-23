@@ -122,14 +122,16 @@ pub async fn validate_nonce_issued_at(nonce: &str, issued_at: i64) -> Result<()>
     let now = now_secs();
     let is_prod = !is_debug_mode()?;
     if (is_prod || BACKDOOR_ISSUED_AT.contains(&issued_at).not())
-        && now > issued_at + NONCE_EXPIRE_SECONDS {
-            return Err(anyhow!(super::error::Error::SigExpired.to_json()));
-        }
+        && now > issued_at + NONCE_EXPIRE_SECONDS
+    {
+        return Err(anyhow!(super::error::Error::SigExpired.to_json()));
+    }
 
     if (is_prod || BACKDOOR_NONCE.contains(&nonce).not())
-        && !check_and_insert_nonce(now, nonce, issued_at).await {
-            return Err(anyhow!(super::error::Error::RepeatedNonce.to_json()));
-        }
+        && !check_and_insert_nonce(now, nonce, issued_at).await
+    {
+        return Err(anyhow!(super::error::Error::RepeatedNonce.to_json()));
+    }
     Ok(())
 }
 
@@ -596,6 +598,17 @@ mod tests {
     };
     use crate::codec::bs58::EncodeBs58;
     use crate::ed25519;
+
+    #[test]
+    fn test_verify_pwd_sig_ok() {
+        //pub fn verify_pwd_sig(data: &str, pwd_pubkey: &str, pwd_sig: &str) -> Result<()> {
+        let data = r#"{"type":"CreateWalletKey","issued_at":1782146507,"nonce":"1782146507753_4785cef3a712ac385aed1cac6e7"}"#;
+        let pwd_pubkey = "7cAdcpVGaaKrDBWA9Xs2n9pFdjNmPToRKP3G6PuEydQ9";
+        let pwd_sig = "2wJ5nKJZyjD9auy9DDx9ixak2UnHuxfphaRPkeATZWbSN81YVmepBAx8Z82ZjMuoUfkbFZzS2ixvWMdfjdzAjmi";
+        let res = super::verify_pwd_sig(data, pwd_pubkey, pwd_sig);
+        println!("{:?}", res);
+        assert!(res.is_ok())
+    }
 
     #[test]
     fn remove_title_keeps_plain_value() {
