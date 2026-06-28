@@ -71,14 +71,10 @@ impl EnclaveRequest<Request> {
         struct Payload {
             r#type: Usage,
             message: String,
-            issued_at: i64,
-            nonce: String,
         }
         let payload = Payload {
-            r#type: Usage::Sign,
+            r#type: Usage::ConfirmWalletKey,
             message: ciphertext,
-            issued_at: self.request.issued_at,
-            nonce: self.request.nonce.clone(),
         };
 
         serde_json::to_string(&payload).unwrap()
