@@ -55,7 +55,7 @@ const SIGN_ASSERTION: &str = "MEQCIGkPGoSm8cBNfUShXdCOMPcR+ulQQ14wEq+0O/V1yTu7Ai
 // {"type":"ConfirmWalletKey","message": "xxxx"}
 // {"type":"Sign","message": "xxxx","issued_at":1779876890,"nonce":"1111"}
 // {"type":"SignWithoutAssertion","message": "xxxx","issued_at":1779876890,"nonce":"1111"}
-// {"type":"RecoverWallet","issued_at":1779876890,"nonce":"1111"}
+// {"type":"RecoverSubaccount","issued_at":1779876890,"nonce":"1111"}
 // {"type":"ModifyPassword","issued_at":1779876890,"nonce":"1111"}
 
 pub fn register_tee_device_payload() -> String {
@@ -118,7 +118,7 @@ pub fn sign_without_assertion_payload_with_params(
 
 pub fn recover_wallet_payload() -> String {
     format!(
-        "{{\"type\":\"RecoverWallet\",\"issued_at\":{},\"nonce\":\"{}\"}}",
+        "{{\"type\":\"RecoverSubaccount\",\"issued_at\":{},\"nonce\":\"{}\"}}",
         ISSUED_AT, NONCE
     )
 }
@@ -328,14 +328,14 @@ pub fn generate_tee_assertion(platform: &str, message: &str, times: u8) -> Resul
         ("Google", "ConfirmWalletKey",3) => CONFIRM_KEY_ASSERTION.to_owned(),
         ("Google", "Sign",_) => SIGN_ASSERTION.to_owned(),
         ("Google", "SignWithoutAssertion",_) => "MEQCIDa9Nx4ZPCTpo2S8rKm/U5gdkYbUQiwCnwydXGAa5WCRAiAse4MU24IJdv65Jspc3RzM0HU8q8EYnzqgi5yCV5FRBw==".to_owned(),
-        ("Google", "RecoverWallet",_) => "MEUCIQDuVPMZ9anWCtRtlzW9xfqw3yAM/lQ2osksOIdR5ZEfZgIgSJyp0z/OwJ4UeV5u4C4UhwS7XhJjb/MVKO1kwyXnnUY=".to_owned(),
+        ("Google", "RecoverSubaccount",_) => "MEUCIQDuVPMZ9anWCtRtlzW9xfqw3yAM/lQ2osksOIdR5ZEfZgIgSJyp0z/OwJ4UeV5u4C4UhwS7XhJjb/MVKO1kwyXnnUY=".to_owned(),
         ("Google", "ModifyPassword",_) => "MEUCIQCrnWdeuVoxSzkrHg4r3aFHeVOvWdCGDYWzlyZjHzSAbgIgJTYUZiL51zBXHkO+o8uUq55nVqHNIgvAprOChZG2pA0=".to_owned(),
         ("Apple", "ConfirmTeeDevice",_) => "".to_owned(),
         ("Apple", "CreateWalletKey",_) => "".to_owned(),
         ("Apple", "ConfirmWalletKey",_) => "".to_owned(),
         ("Apple", "Sign",_) => "".to_owned(),
         ("Apple", "SignWithoutAssertion",_) => "".to_owned(),
-        ("Apple", "RecoverWallet",_) => "".to_owned(),
+        ("Apple", "RecoverSubaccount",_) => "".to_owned(),
         ("Apple", "ModifyPassword",_) => "".to_owned(),
         _ => bail!("unknown message type"),
     };

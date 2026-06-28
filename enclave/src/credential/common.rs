@@ -65,7 +65,7 @@ pub enum Usage {
     ConfirmWalletKey,
     Sign,
     SignWithoutAssertion,
-    RecoverWallet,
+    RecoverSubaccount,
     ModifyPassword,
 }
 
