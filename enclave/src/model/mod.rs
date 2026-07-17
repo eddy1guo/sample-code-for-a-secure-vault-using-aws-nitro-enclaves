@@ -33,7 +33,7 @@ pub use sign_without_assertion::{
 use std::collections::HashMap;
 use std::fmt;
 use std::ops::Not;
-use std::sync::{LazyLock, Mutex};
+use std::sync::{LazyLock, Mutex, RwLock};
 
 use anyhow::{Error, Result, anyhow, bail};
 use aws_lc_rs::signature::{
@@ -48,7 +48,6 @@ use rustls::crypto::aws_lc_rs::hpke::{
 use rustls::crypto::hpke::Hpke;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use tokio::sync::RwLock;
 use zeroize::ZeroizeOnDrop;
 
 use crate::codec::bs58::DecodeBs58;
@@ -105,20 +104,23 @@ struct FailureCache {
 static FAILED_PWD_SIG_CACHE: LazyLock<Mutex<FailureCache>> =
     LazyLock::new(|| Mutex::new(FailureCache::default()));
 
-pub async fn check_and_insert_nonce(now: i64, nonce: &str, issued_at: i64) -> bool {
-    let mut map = NONCE_CACHE.write().await;
+fn check_and_insert_nonce(now: i64, nonce: &str, issued_at: i64) -> Result<bool> {
+    let mut map = NONCE_CACHE.write().map_err(|e| {
+        println!("nonce cache lock poisoned,{}", e);
+        anyhow!(crate::error::Error::InternalError.to_json())
+    })?;
     map.retain(|_, ts| now.saturating_sub(*ts) <= NONCE_EXPIRE_SECONDS);
     if map.len() >= MAX_NONCE_CACHE {
-        return true;
+        return Ok(true);
     }
     if map.contains_key(nonce) {
-        return false;
+        return Ok(false);
     }
     map.insert(nonce.to_owned(), issued_at);
-    true
+    Ok(true)
 }
 
-pub async fn validate_nonce_issued_at(nonce: &str, issued_at: i64) -> Result<()> {
+pub fn validate_nonce_issued_at(nonce: &str, issued_at: i64) -> Result<()> {
     let now = now_secs();
     let is_prod = !is_debug_mode()?;
     if (is_prod || BACKDOOR_ISSUED_AT.contains(&issued_at).not())
@@ -128,7 +130,7 @@ pub async fn validate_nonce_issued_at(nonce: &str, issued_at: i64) -> Result<()>
     }
 
     if (is_prod || BACKDOOR_NONCE.contains(&nonce).not())
-        && !check_and_insert_nonce(now, nonce, issued_at).await
+        && !check_and_insert_nonce(now, nonce, issued_at)?
     {
         return Err(anyhow!(super::error::Error::RepeatedNonce.to_json()));
     }

@@ -101,10 +101,7 @@ impl EnclaveRequest<Request> {
         self.validate()?;
         println!("file={},line={}", file!(), line!());
 
-        tokio::runtime::Runtime::new()?.block_on(validate_nonce_issued_at(
-            &self.request.nonce,
-            self.request.issued_at,
-        ))?;
+        validate_nonce_issued_at(&self.request.nonce, self.request.issued_at)?;
 
         let wallet_bond = get_wallet_key_bond(
             &self.credential,

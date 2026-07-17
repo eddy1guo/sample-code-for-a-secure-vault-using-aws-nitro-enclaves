@@ -102,10 +102,7 @@ impl EnclaveRequest<Request> {
         println!("request_data={:#?}", self.request);
         self.validate()?;
 
-        tokio::runtime::Runtime::new()?.block_on(validate_nonce_issued_at(
-            &self.request.nonce,
-            self.request.issued_at,
-        ))?;
+        validate_nonce_issued_at(&self.request.nonce, self.request.issued_at)?;
         println!("file={},line={}", file!(), line!());
 
         let new_device = get_tee_client_from_ciphertext(&self.request.new_device_ciphertext)?;

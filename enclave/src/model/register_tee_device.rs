@@ -60,17 +60,18 @@ impl EnclaveRequest<Request> {
     pub fn execute(&self) -> Result<Response> {
         println!("request_data={:#?}", self.request);
         self.validate()?;
-        tokio::runtime::Runtime::new()?.block_on(validate_nonce_issued_at(
-            &self.request.nonce,
-            self.request.issued_at,
-        ))?;
+        validate_nonce_issued_at(&self.request.nonce, self.request.issued_at)?;
         println!("file={},line={}", file!(), line!());
         //let attestation = self.attestation()?;
         let (app_id, pubkey) = verify_attestation(
             &self.request.platform,
             self.sign_payload().as_bytes(),
             &self.request.attestation,
-        )?;
+        )
+        .map_err(|e| {
+            println!("{:?}", e);
+            anyhow!(crate::error::Error::AttestationVerifyFailed.to_json())
+        })?;
         let tee_client = TeeClient {
             platform: self.request.platform.clone(),
             pubkey: pubkey.clone(),

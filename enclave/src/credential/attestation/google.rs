@@ -116,7 +116,7 @@ pub fn verify_attestation2(
 ) -> Result<(String, String)> {
     let chain = attestation_cert_chain_base64
         .iter()
-        .map(|cert| cert.decode_bs64())
+        .map(|cert| cert.decode_bs64().map_err(anyhow::Error::from))
         .collect::<Result<Vec<Vec<u8>>>>()?;
     let requirements = KeyAttestationRequirements {
         challenge: client_data_bytes,
@@ -158,12 +158,12 @@ impl RealWorldSample {
         let chain = self
             .attestation_cert_chain_base64
             .iter()
-            .map(|cert| cert.decode_bs64())
+            .map(|cert| cert.decode_bs64().map_err(anyhow::Error::from))
             .collect::<Result<Vec<Vec<u8>>>>()?;
         let requirements = KeyAttestationRequirements {
             challenge: &challenge,
             root_pems: &[],
-            //jin
+            //仅本地调试验证，这里硬编码没问题
             expected_package_name: Some("com.chainlessandroid.app"),
             expected_signature_digests: &[],
             require_hardware_backed: true,
@@ -204,7 +204,7 @@ impl RealWorldSample {
         let chain = self
             .attestation_cert_chain_base64
             .iter()
-            .map(|cert| cert.decode_bs64())
+            .map(|cert| cert.decode_bs64().map_err(anyhow::Error::from))
             .collect::<Result<Vec<Vec<u8>>>>()?;
         let requirements = KeyAttestationRequirements {
             challenge: &challenge,
