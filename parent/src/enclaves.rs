@@ -196,7 +196,15 @@ impl Enclaves {
         payload: EnclaveAction,
     ) -> Result<EnclaveResponse, AppError> {
         // Connect to enclave via vsock
-        let mut stream = VsockStream::connect(&VsockAddr::new(cid, port))?;
+        let mut stream = VsockStream::connect(&VsockAddr::new(cid, port)).map_err(|e| {
+            tracing::error!(
+                "[parent] failed to connect to enclave CID {} port {}: {}",
+                cid,
+                port,
+                e
+            );
+            AppError::InternalServerError
+        })?;
 
         tracing::debug!("[parent] connected to CID {} and port {}", cid, port);
 
@@ -205,12 +213,45 @@ impl Enclaves {
 
         tracing::trace!("[parent] sending message ({} bytes)", msg.len());
 
-        send_message(&mut stream, msg)?;
+        send_message(&mut stream, msg).map_err(|e| {
+            tracing::error!(
+                "[parent] failed to send request to enclave CID {} port {}: {}",
+                cid,
+                port,
+                e
+            );
+            AppError::InternalServerError
+        })?;
 
         // Receive and deserialize response
-        let response = recv_message(&mut stream)?;
+        let response = recv_message(&mut stream).map_err(|e| {
+            tracing::error!(
+                "[parent] failed to receive response from enclave CID {} port {}: {}",
+                cid,
+                port,
+                e
+            );
+            AppError::InternalServerError
+        })?;
 
-        let result: EnclaveResponse = serde_json::from_slice(&response)?;
+        let result: EnclaveResponse = serde_json::from_slice(&response).map_err(|e| {
+            tracing::error!(
+                "[parent] failed to deserialize enclave response from CID {} port {}: {}",
+                cid,
+                port,
+                e
+            );
+            AppError::InternalServerError
+        })?;
+
+        if let Some(diagnostic) = result.diagnostic.as_ref() {
+            tracing::error!(
+                "[parent] enclave internal diagnostic from CID {} port {}: {}",
+                cid,
+                port,
+                diagnostic
+            );
+        }
 
         tracing::trace!(
             "[parent] received response with {} fields",

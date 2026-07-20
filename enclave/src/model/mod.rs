@@ -318,6 +318,8 @@ pub struct EnclaveResponse {
     pub fields: Option<HashMap<String, Value>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub errors: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub diagnostic: Option<String>,
 }
 
 impl EnclaveResponse {
@@ -326,6 +328,7 @@ impl EnclaveResponse {
         Self {
             fields: Some(fields),
             errors,
+            diagnostic: None,
         }
     }
 
@@ -333,6 +336,15 @@ impl EnclaveResponse {
         Self {
             fields: None,
             errors: Some(vec![error.to_string()]),
+            diagnostic: None,
+        }
+    }
+
+    pub fn internal_error(diagnostic: String) -> Self {
+        Self {
+            fields: None,
+            errors: Some(vec![crate::error::Error::InternalError.to_json()]),
+            diagnostic: Some(diagnostic),
         }
     }
 }

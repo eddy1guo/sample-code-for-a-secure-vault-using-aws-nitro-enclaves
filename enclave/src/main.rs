@@ -38,7 +38,11 @@ fn send_error<W: Write>(mut stream: W, err: Error) -> Result<()> {
     let sanitized_msg = sanitize_error_message(&err);
     println!("[enclave error] {sanitized_msg}");
 
-    let response = EnclaveResponse::error(err);
+    let response = if err.is_biz_error() {
+        EnclaveResponse::error(err)
+    } else {
+        EnclaveResponse::internal_error(sanitized_msg)
+    };
 
     let payload: String = serde_json::to_string(&response)
         .map_err(|err| anyhow!("failed to serialize error response: {err:?}"))?;
@@ -147,7 +151,7 @@ fn handle_client<S: Read + Write>(mut stream: S) -> Result<()> {
             if err.is_biz_error() {
                 (Default::default(), Some(vec![err]))
             } else {
-                return Err(err);
+                return send_error(stream, err);
             }
         }
     };

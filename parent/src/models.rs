@@ -366,6 +366,10 @@ pub struct EnclaveResponse {
     /// List of errors encountered during decryption (if any).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub errors: Option<Vec<String>>,
+
+    /// Sanitized enclave-side diagnostic for internal failures.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub diagnostic: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Validate)]
