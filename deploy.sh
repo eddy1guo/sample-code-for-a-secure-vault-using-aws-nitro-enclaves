@@ -27,7 +27,7 @@ printf "\n## this installation script includes a \"dp:exclude:network\" tag key 
 printf "\n## tag value of \"true\" or the installation will fail.                          ##"
 printf "\n#################################################################################\n\n"
 
-STACK_PREFIX=nitro-vault
+STACK_PREFIX=chainless-nitro-vault
 VPC_STACK_NAME="${STACK_PREFIX}-vpc"
 KEY_STACK_NAME="${STACK_PREFIX}-key"
 CI_STACK_NAME="${STACK_PREFIX}-ci"
