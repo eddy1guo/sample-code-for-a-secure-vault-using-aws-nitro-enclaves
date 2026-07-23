@@ -12,7 +12,7 @@ Parameters:
   pResourcePrefix:
     Type: String
     Description: VPC Resource Prefix
-    Default: nitro-vault
+    Default: chainless-nitro-vault
   pCidrBlock:
     Type: String
     Description: VPC CIDR Block
