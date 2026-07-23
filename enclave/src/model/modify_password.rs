@@ -18,6 +18,7 @@ pub struct Request {
     pub assertion: String,
     pub issued_at: i64,
     pub nonce: String,
+    // 暂未用到的保留参数
     pub key_id: String,
     pub region: String,
 }

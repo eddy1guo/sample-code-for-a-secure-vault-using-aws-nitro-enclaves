@@ -18,6 +18,7 @@ pub struct Request {
     pub assertion: String,
     pub issued_at: i64,
     pub nonce: String,
+    // 暂未用到的保留参数
     pub key_id: String,
     pub region: String,
 }
@@ -107,7 +108,7 @@ impl EnclaveRequest<Request> {
 
         let new_device = get_tee_client_from_ciphertext(&self.request.new_device_ciphertext)?;
 
-        //先验证新客户端对kms加密结果的认证
+        //验证新客户端对新设备kms加密结果的认证
         let _counter = verify_assertion(
             new_device.platform.clone(),
             &new_device.app_id,
@@ -116,6 +117,17 @@ impl EnclaveRequest<Request> {
             &self.confirm_payload(),
         )?;
         println!("file={},line={}", file!(), line!());
+
+        // 验证新客户端对本次recover动作的确认
+        //fix: 先只打印结果不要影响测试
+        let assertion_res = verify_assertion(
+            new_device.platform,
+            &new_device.app_id,
+            &self.request.assertion,
+            &new_device.pubkey,
+            &self.sign_payload(),
+        );
+        println!("file={},line={},res={:?}", file!(), line!(), assertion_res);
 
         //这里仅为了提取pwd_pubkey，任何一个成员的都行
         let wallet_bond = get_wallet_key_bond(

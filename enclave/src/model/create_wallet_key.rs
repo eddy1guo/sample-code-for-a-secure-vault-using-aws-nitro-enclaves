@@ -99,6 +99,7 @@ impl EnclaveRequest<Request> {
 
     pub fn execute(&self) -> Result<Response> {
         println!("request_data={:#?}", self.request);
+        self.validate()?;
         validate_nonce_issued_at(&self.request.nonce, self.request.issued_at)?;
         //验证密码签名
         super::verify_pwd_sig(

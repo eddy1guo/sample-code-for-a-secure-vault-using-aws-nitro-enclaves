@@ -134,10 +134,6 @@ impl EnclaveRequest<Request> {
                 println!("{:?}", e);
                 anyhow!(super::super::error::Error::ParamsInvalid.to_json())
             })?;
-        println!(
-            "[enclave] decrypted KMS secret key {}",
-            wallet_prikey_bytes.encode_bs58()
-        );
         println!("file={},line={}", file!(), line!());
 
         let msg_bytes = self.request.message.decode_bs64().map_err(|e| {
