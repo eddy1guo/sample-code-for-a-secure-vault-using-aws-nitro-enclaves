@@ -166,14 +166,14 @@ impl EnclaveRequest<Request> {
         let wallet_pubkey = key_pair.1.encode_bs58().add_title();
         let plaint_text = WalletKeyBond {
             user_id: self.request.user_id,
-            client_platform: client.platform,
+            client_platform: bind_client.platform,
             //create_key的几个场景（帐号注册、创建子帐号、为从设备创建key，新换主、从换主），该值都是主设备
             master_device_pubkey: client.pubkey,
             tee_device_pubkey: bind_client.pubkey,
             pwd_pubkey: self.request.pwd_pubkey.clone(),
             wallet_prikey: wallet_prikey.clone(),
             usage: Usage::CreateWalletKey,
-            app_id: client.app_id,
+            app_id: bind_client.app_id,
             counter,
         }
         .serialize_json()?;
