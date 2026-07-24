@@ -119,15 +119,14 @@ impl EnclaveRequest<Request> {
         println!("file={},line={}", file!(), line!());
 
         // 验证新客户端对本次recover动作的确认
-        //fix: 先只打印结果不要影响测试
-        let assertion_res = verify_assertion(
+        let _counter = verify_assertion(
             new_device.platform,
             &new_device.app_id,
             &self.request.assertion,
             &new_device.pubkey,
             &self.sign_payload(),
-        );
-        println!("file={},line={},res={:?}", file!(), line!(), assertion_res);
+        )?;
+        println!("file={},line={}", file!(), line!());
 
         //这里仅为了提取pwd_pubkey，任何一个成员的都行
         let wallet_bond = get_wallet_key_bond(
