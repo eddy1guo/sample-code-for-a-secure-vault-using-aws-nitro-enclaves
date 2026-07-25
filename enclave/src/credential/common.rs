@@ -27,7 +27,6 @@ pub struct WalletKeyBond {
     pub client_platform: Platform,
     // app package name
     pub app_id: String,
-    pub master_device_pubkey: String,
     pub tee_device_pubkey: String,
     pub pwd_pubkey: String,
     pub wallet_prikey: String,
@@ -44,10 +43,6 @@ impl WalletKeyBond {
             pubkey: self.tee_device_pubkey,
             usage: self.usage,
         }
-    }
-
-    pub fn is_master(&self) -> bool {
-        self.tee_device_pubkey == self.master_device_pubkey
     }
 }
 

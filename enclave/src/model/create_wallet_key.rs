@@ -120,7 +120,7 @@ impl EnclaveRequest<Request> {
                 master_key_bond.client_platform.clone(),
                 &master_key_bond.app_id,
                 confirm_assertion,
-                &master_key_bond.master_device_pubkey,
+                &master_key_bond.tee_device_pubkey,
                 &self.master_key_bond_confirm_payload(ciphertext.clone()),
             )?;
             if self.request.pwd_pubkey != master_key_bond.pwd_pubkey {
@@ -167,8 +167,6 @@ impl EnclaveRequest<Request> {
         let plaint_text = WalletKeyBond {
             user_id: self.request.user_id,
             client_platform: bind_client.platform,
-            //create_key的几个场景（帐号注册、创建子帐号、为从设备创建key，新换主、从换主），该值都是主设备
-            master_device_pubkey: client.pubkey,
             tee_device_pubkey: bind_client.pubkey,
             pwd_pubkey: self.request.pwd_pubkey.clone(),
             wallet_prikey: wallet_prikey.clone(),

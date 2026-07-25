@@ -51,18 +51,6 @@ pub fn verify_assertion(
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    // [enclave:plaintext_pubkey] decrypted wallet key bond payload:
-    //
-    // WalletKeyBond { user_id: 1002160133, client_platform: Apple, app_id: "F632MRRB47.com.chainlessios.app",
-    // master_device_pubkey: "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEdX0JEw7VFi0q0NlEAZmjc/PyVM5tpf8UuUuV7dxEP16P3rVlBj0S9xXzQhfAPdB/fgjiGzsuqI7Vu3EeAQ99+w==",
-    // tee_device_pubkey: "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEdX0JEw7VFi0q0NlEAZmjc/PyVM5tpf8UuUuV7dxEP16P3rVlBj0S9xXzQhfAPdB/fgjiGzsuqI7Vu3EeAQ99+w==",
-    // pwd_pubkey: "7cAdcpVGaaKrDBWA9Xs2n9pFdjNmPToRKP3G6PuEydQ9",
-    // wallet_prikey: "ed25519:4XKnC6Lmj3Cw8PETWB1eJA2sasm4SkSYtQNjjqJ4aB7tmehH7wJpn6x8RVNQmGQpfbKoxS13f1pGigir6439fdwk",
-    // usage: CreateWalletKey,
-    // counter: Some(2) }
-    //
-
     #[test]
     fn test_platform_apple_assertion() -> anyhow::Result<()> {
         let platform = Platform::Apple;

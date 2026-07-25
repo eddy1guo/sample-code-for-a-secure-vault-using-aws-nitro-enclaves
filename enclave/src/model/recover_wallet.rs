@@ -145,6 +145,7 @@ impl EnclaveRequest<Request> {
 
         //校验每个key的客户端确认签名并且解密后换绑重新加密
         let mut new_key_bonds = vec![];
+        //fixme: 这里通过上游确保只有子帐号才会调用这个接口
         for bond in self.request.key_bonds.iter() {
             let mut wallet_bond =
                 get_wallet_key_bond(&self.credential, &bond.ciphertext, &self.request.region)?;
@@ -153,19 +154,14 @@ impl EnclaveRequest<Request> {
                 wallet_bond.client_platform.clone(),
                 &wallet_bond.app_id,
                 &bond.confirmed_assertion,
-                &wallet_bond.master_device_pubkey,
+                &wallet_bond.tee_device_pubkey,
                 &bond.confirm_payload(),
             )
             .map_err(|e| {
                 println!("{:?}", e);
                 anyhow!(crate::error::Error::AssertionVerifyFailed.to_json())
             })?;
-            // 新设备作为所有旧设备的主设备
-            wallet_bond.master_device_pubkey = new_device.pubkey.clone();
-            // 对于旧的主设备还要更新自身key
-            if wallet_bond.is_master() {
-                wallet_bond.tee_device_pubkey = new_device.pubkey.clone();
-            }
+
             let wallet_pubkey = wallet_bond
                 .wallet_prikey
                 .remove_title()

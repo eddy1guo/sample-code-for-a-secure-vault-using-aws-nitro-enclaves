@@ -344,7 +344,6 @@ mod tests {
             user_id: 1,
             client_platform: Platform::Google,
             app_id: "app".to_string(),
-            master_device_pubkey: "master".to_string(),
             tee_device_pubkey: "tee".to_string(),
             pwd_pubkey: "pwd".to_string(),
             wallet_prikey: "wallet".to_string(),
@@ -358,7 +357,6 @@ mod tests {
             get_wallet_key_bond(&dummy_credential(), &ciphertext, "ap-southeast-1").unwrap();
 
         assert_eq!(decrypted.user_id, bond.user_id);
-        assert_eq!(decrypted.master_device_pubkey, bond.master_device_pubkey);
         assert_eq!(decrypted.tee_device_pubkey, bond.tee_device_pubkey);
     }
 }

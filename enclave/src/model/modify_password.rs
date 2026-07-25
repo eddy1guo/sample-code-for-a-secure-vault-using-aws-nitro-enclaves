@@ -103,7 +103,8 @@ impl EnclaveRequest<Request> {
             wallet_bond.client_platform,
             &wallet_bond.app_id,
             &self.request.assertion,
-            &wallet_bond.master_device_pubkey,
+            //这里通过上游来保证只有主设备有权限, enclave内部不关心业务
+            &wallet_bond.tee_device_pubkey,
             &self.sign_payload(),
         )?;
         println!("file={},line={}", file!(), line!());
