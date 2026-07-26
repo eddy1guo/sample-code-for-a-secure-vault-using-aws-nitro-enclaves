@@ -726,7 +726,7 @@ mod tests {
         let pwd_pubkey = pubkey.encode_bs58();
         let account_key = account_lock_key(user_id, &pwd_pubkey);
 
-        NONCE_CACHE.blocking_write().clear();
+        NONCE_CACHE.write().unwrap().clear();
         clear_failed_pwd_sig(&account_key).unwrap();
         {
             let mut cache = FAILED_PWD_SIG_CACHE.lock().unwrap();

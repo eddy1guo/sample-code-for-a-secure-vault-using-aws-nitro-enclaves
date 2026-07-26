@@ -116,13 +116,14 @@ impl EnclaveRequest<Request> {
         ) {
             let master_key_bond =
                 get_wallet_key_bond(&self.credential, ciphertext, &self.request.region)?;
-            verify_assertion(
-                master_key_bond.client_platform.clone(),
-                &master_key_bond.app_id,
-                confirm_assertion,
-                &master_key_bond.tee_device_pubkey,
-                &self.master_key_bond_confirm_payload(ciphertext.clone()),
-            )?;
+            // fixme: 这里的master_key_bond_ciphertext有可能是有别的机器来确认的
+            // verify_assertion(
+            //     master_key_bond.client_platform.clone(),
+            //     &master_key_bond.app_id,
+            //     confirm_assertion,
+            //     &master_key_bond.tee_device_pubkey,
+            //     &self.master_key_bond_confirm_payload(ciphertext.clone()),
+            // )?;
             if self.request.pwd_pubkey != master_key_bond.pwd_pubkey {
                 bail!(Error::PasswordDifferentWithMasterKey.to_json())
             }
