@@ -116,7 +116,7 @@ impl EnclaveRequest<Request> {
         ) {
             let master_key_bond =
                 get_wallet_key_bond(&self.credential, ciphertext, &self.request.region)?;
-            // fixme: 这里的master_key_bond_ciphertext有可能是有别的机器来确认的
+            // fixme: 这里的key_bond_confirmed_assertion有可能是有别的机器来确认的，比如从设备的assertion是由主设备完成的
             // verify_assertion(
             //     master_key_bond.client_platform.clone(),
             //     &master_key_bond.app_id,

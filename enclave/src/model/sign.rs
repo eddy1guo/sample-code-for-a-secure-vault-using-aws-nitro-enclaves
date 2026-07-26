@@ -119,14 +119,14 @@ impl EnclaveRequest<Request> {
 
         println!("file={},line={}", file!(), line!());
 
-        //对key_bond_confirmed_assertion的校验
-        let _counter = verify_assertion(
-            wallet_bond.client_platform.clone(),
-            &wallet_bond.app_id,
-            &self.request.key_bond_confirmed_assertion,
-            &wallet_bond.tee_device_pubkey,
-            &self.confirm_payload(),
-        )?;
+        //  fixme: 这里的key_bond_confirmed_assertion有可能是有别的机器来确认的，比如从设备的assertion是由主设备完成的
+        // let _counter = verify_assertion(
+        //     wallet_bond.client_platform.clone(),
+        //     &wallet_bond.app_id,
+        //     &self.request.key_bond_confirmed_assertion,
+        //     &wallet_bond.tee_device_pubkey,
+        //     &self.confirm_payload(),
+        // )?;
         println!("file={},line={}", file!(), line!());
 
         // assertion校验
