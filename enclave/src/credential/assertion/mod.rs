@@ -17,7 +17,7 @@ pub fn verify_assertion(
     pubkey_base64: &str,
     payload: &str,
 ) -> anyhow::Result<Option<u32>> {
-    if is_debug_mode()? && assertion_object_base64 == "xxxxxxxx" {
+    if assertion_object_base64 == "xxxxxxxx" && is_debug_mode()? {
         return Ok(None);
     }
     match platform {
@@ -151,6 +151,27 @@ mod tests {
         let assertion_object_base64 = "omlzaWduYXR1cmVYRjBEAiBfF+Xj7l+5r4LaUdQGLPSf/l64lT/Hng9CcxzynNXZUQIgYVKoDFI4LOSIIH7QIY1aZVXF7fpSEhc+La2Tp4tibglxYXV0aGVudGljYXRvckRhdGFYJcSzS2LHpNtx7epatecV/d7bs/CZi/FoN3vm2i52ysZRQAAAAAU=";
         let pubkey_base64 = "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAELIOS3ujBAc4y+BKTwghFlOi3C+tHw/m3r7d0Ekdv8r7521tVIwLyMszRhbIo+smmK1XU+gLdTIauBvhzAY36eA==";
         let payload = r#"{"type":"ConfirmWalletKey","message":"bcc40b3c10627049a886a881165ae606e3b069f5204c9d3f0b3a266647c0fc02f7aad292e8a0d562d233e874ddb4bab989685f2d86654ab66d718adb670ad2eabad61973dfed791a485b2f2cffa8ef7d173ac4f235bc22103ed2bcd88ac72a81175494cf230240f96f1df30c3dac7226abf192c4c6708982486b975b7d210f0a5f35922400b8c256c3cadc4bb81353c3110b0ca671a489f902b7c595632515ea459fc5cf3ace6fbd8930884fce6b5c709d8ba1b0da2c458f7ea27bec0846950df9c32024ea5a77aef3bd2c46e8def09082b3fd4765da335bab3839cf9dffb2466bbb7f9ed1ecffe7d35cfef142ec46f371392afdc64157472cf3b2249f73e62d736ab854868f062451aaf6ee2aac634aec52be3bff23e7e0ddb9b65f19059a3839ca8f728ea4991b55e127470b58074fe981f8848823d52f37635c24672ac333b1250bd4bcf20e8d420b6f0e26004bf43ea527689c0350f90c24eeb5aa91550f29780f5c96526a2d1bdcd08150633481b2904810777151f15c5de2cb8ca8486c082286ee4bd49cdcd650fa4c3a62ea5f1672334934af9aac45d1a69c362e80295fd0b65523a91a17cadd94535949a239af4aa6035d024f903e9d464e1d244b5b95243f307c7101abcf3454de00500440d70d45be517180dcd4"}"#;
+
+        let verified = verify_assertion(
+            platform,
+            app_id,
+            assertion_object_base64,
+            pubkey_base64,
+            payload,
+        )?;
+        Ok(())
+    }
+
+    #[test]
+    fn test_platform_google_assertion6() -> anyhow::Result<()> {
+        let platform = Platform::Google;
+        let app_id = "com.chainlessandroid.app";
+        let assertion_object_base64 = "MEYCIQC/w905raE9zxSCUrkj2v5If86zAz8OrGPBZQ4g6qY4swIhAMF1R+5TkieBAZ3PDXW6fJ1tkO4bqNNSUG6EosVGXaU/";
+        let pubkey_base64 = "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEiXEnJqrescl4RDYZdER2sQ+kc6+YcjlJPCI7J79juq/XAyj5QVAqbf8A7TBcSFRsxYEYOMKxdVuOy2bgkAoBOQ==";
+        //  MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAERoMqb7yeQBJRA73ryjfvDMcQ6bRmNVqnwS1C8IdVnN9MoYVQFiqPfi01g20n8b9XP5kp8tcYk23cefs1bEIc7A==
+        let pubkey_base64 = "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAERoMqb7yeQBJRA73ryjfvDMcQ6bRmNVqnwS1C8IdVnN9MoYVQFiqPfi01g20n8b9XP5kp8tcYk23cefs1bEIc7A==";
+
+        let payload = r#"{"type":"Sign","message":"q/wKT6Uc28KN9EfE7heJSDag1tYYFab3yPTQi8NFc6A=","issued_at":1785076589,"nonce":"1785076589812_7c7f9deb972c54efb4b57c19b408"}"#;
 
         let verified = verify_assertion(
             platform,
